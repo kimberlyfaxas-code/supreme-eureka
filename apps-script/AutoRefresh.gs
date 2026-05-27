@@ -1,43 +1,39 @@
 /*******************************************************
- * AutoRefresh.gs
- * Auto-refresh dashboards on a timer + debounced onEdit.
- *
- * BUG FIX: Timer was incorrectly set to everyMinutes(1).
- * Now correctly set to everyMinutes(15) to avoid exhausting
- * Apps Script quota and causing UI freezes.
+ * AutoRefresh.gs (FINAL - CLEAN)
+ * - Timer-based rebuild ONLY
+ * - onEdit only records "a refresh was requested" (no rebuild)
  *******************************************************/
-
 const AR_CFG = {
   WATCH_SHEETS: new Set([
     "CSM_Working_Forecast",
     "Manual_Forecast_AddOns",
     "2026_Adjustments"
   ]),
-
-  // Minimum gap between edit-triggered refreshes (seconds)
-  DEBOUNCE_SECONDS: 90,
-
-  PROP_LAST_REQUEST_TS: "AR_LAST_REQUEST_TS",
+  // Debounce window (seconds) for recording requests
+  DEBOUNCE_SECONDS: 600,
+  // Time-driven trigger frequency (minutes)
+  TIMER_MINUTES: 15,
+  // Script property keys
+  PROP_LAST_REQUEST_TS: "AR_LAST_REQUEST_TS"
 };
-
 /**
- * Install triggers (run once manually from the script editor).
- * Creates a time-driven refresh every 15 minutes.
+ * Run once manually to install the timer trigger.
  */
 function AR_installAutoRefresh() {
   AR_removeAutoRefreshTriggers_();
-
   ScriptApp.newTrigger("AR_refreshDashboards")
     .timeBased()
-    .everyMinutes(15)
+    .everyMinutes(AR_CFG.TIMER_MINUTES)
     .create();
-
-  SpreadsheetApp.getActiveSpreadsheet()
-    .toast("Auto-refresh installed (every 15 minutes).", "Forecast Tools", 5);
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    `Auto-refresh installed (every ${AR_CFG.TIMER_MINUTES} minutes).`,
+    "Forecast Tools",
+    5
+  );
 }
-
 /**
- * Remove ONLY the auto-refresh triggers created by this project.
+ * Removes ONLY the dashboard timer trigger(s).
+ * (If you want to nuke everything, do it explicitly elsewhere.)
  */
 function AR_removeAutoRefreshTriggers_() {
   ScriptApp.getProjectTriggers().forEach(t => {
@@ -45,10 +41,9 @@ function AR_removeAutoRefreshTriggers_() {
     if (fn === "AR_refreshDashboards") ScriptApp.deleteTrigger(t);
   });
 }
-
 /**
- * Called from TR_onEdit (Triggers.gs) when a watched sheet is edited.
- * Debounced to avoid constant rebuilds during rapid editing.
+ * Called by TR_onEdit for changes on WATCH_SHEETS.
+ * Records a timestamp but DOES NOT rebuild immediately.
  */
 function AR_requestRefreshFromEdit_(e) {
   try {
@@ -56,37 +51,31 @@ function AR_requestRefreshFromEdit_(e) {
     const sh = e.range.getSheet();
     if (!sh) return;
     if (!AR_CFG.WATCH_SHEETS.has(sh.getName())) return;
-
     const props = PropertiesService.getDocumentProperties();
     const now = Date.now();
     const last = Number(props.getProperty(AR_CFG.PROP_LAST_REQUEST_TS) || "0");
     if (now - last < AR_CFG.DEBOUNCE_SECONDS * 1000) return;
-
     props.setProperty(AR_CFG.PROP_LAST_REQUEST_TS, String(now));
-    AR_refreshDashboards();
+    // No rebuild here — timer handles it.
   } catch (err) {
-    Logger.log("AR_requestRefreshFromEdit_ error: " + err);
+    Logger.log("AR_requestRefreshFromEdit_ error: " + (err && err.stack ? err.stack : err));
   }
 }
-
 /**
- * Safe refresh entrypoint.
- * Uses a lock to prevent concurrent rebuilds.
+ * Timer entrypoint.
+ * Rebuilds data + lists (and your dashboards, if your pipeline does that).
  */
 function AR_refreshDashboards() {
   const lock = LockService.getDocumentLock();
-  if (!lock.tryLock(15000)) {
-    Logger.log("AR_refreshDashboards: lock not acquired, skipping.");
-    return;
-  }
+  if (!lock.tryLock(15000)) return;
   try {
-    if (typeof FD_buildDashboards !== "function") {
-      Logger.log("FD_buildDashboards not found.");
+    if (typeof FDDATA_buildDataAndLists !== "function") {
+      Logger.log("FDDATA_buildDataAndLists not found.");
       return;
     }
-    FD_buildDashboards();
+    FDDATA_buildDataAndLists();
   } catch (err) {
-    Logger.log("AR_refreshDashboards error: " + err);
+    Logger.log("AR_refreshDashboards error: " + (err && err.stack ? err.stack : err));
   } finally {
     lock.releaseLock();
   }
