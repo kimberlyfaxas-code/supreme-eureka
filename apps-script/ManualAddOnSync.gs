@@ -1,4 +1,4 @@
-*******************************************************
+/*******************************************************
  * ManualAddOnSync.gs (FINAL)
  *
  * Manual Add-ons intake + one-time submit to Working.
