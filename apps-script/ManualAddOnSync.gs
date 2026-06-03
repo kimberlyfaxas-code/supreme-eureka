@@ -108,11 +108,12 @@ function MA_submitManualRow_(manualRow) {
   // Ensure script-managed columns exist on Manual sheet
   MA_ensureColumn_(manual, MA_CFG.MANUAL_LINE_ID_HEADER);
   MA_ensureColumn_(manual, MA_CFG.SUBMITTED_AT_HEADER);
-  MA_ensureColumn_(manual, "Booking Type");   // NEW
- 
-  // Ensure Manual Line ID exists on Working sheet
+  MA_ensureColumn_(manual, "Booking Type");
+  MA_ensureColumn_(manual, "Forecast Category");
+
+  // Ensure required columns exist on Working sheet
   MA_ensureColumn_(working, MA_CFG.MANUAL_LINE_ID_HEADER);
-  MA_ensureColumn_(working, "Booking Type");  // NEW
+  MA_ensureColumn_(working, "Booking Type");
   // Rebuild header maps AFTER ensuring columns exist
   const mh = MA_headerMap_(manual);
   const wh = MA_headerMap_(working);
@@ -157,16 +158,6 @@ if (bookingType === "New Sale" && !manualAccountName) {
     6
   );
   return;
-}
-// If this is a New Sale, require Account Name (ownership may not exist yet)
-if (bookingType === "New Sale" && !manualAccountName) {
-manual.getRange(manualRow, includeCol).setValue(false);
-ss.toast(
-"For New Sales, please fill Account Name before submitting.",
-"Manual Add Not Submitted",
-6
-);
-return;
 }
   // IMPORTANT: treat blank differently from 0
   const fAmtRaw = rowVals[faCol - 1];
