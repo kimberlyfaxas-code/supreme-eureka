@@ -35,6 +35,10 @@ function onOpen(e) {
       .addItem("Refresh Dashboard Data (safe)", "FT_refreshDashboardData")
       .addItem("Build Dashboards", "FT_buildDashboards")
       .addSeparator()
+      .addItem("Build Exec Summary", "FT_buildExecSummary")
+      .addItem("Build Waterfall", "FT_buildWaterfall")
+      .addItem("Refresh Waterfall", "FT_refreshWaterfall")
+      .addSeparator()
       .addItem("Install Auto Refresh (every 10 min)", "FT_installAutoRefresh")
       .addSeparator()
       .addItem("Lockdown", "FT_runLockdown")
@@ -108,6 +112,19 @@ function FT_runLockdown() {
     "If you want this menu item to work, add a function named:\n" +
     "FT_lockdownAll()"
   );
+}
+/************ EXEC SUMMARY + WATERFALL ************/
+function FT_buildExecSummary() {
+  if (typeof ES_buildExecSummary === "function") { ES_buildExecSummary(); return; }
+  SpreadsheetApp.getUi().alert("ES_buildExecSummary() not found. Make sure ExecSummary.gs is added.");
+}
+function FT_buildWaterfall() {
+  if (typeof ES_buildWaterfall === "function") { ES_buildWaterfall(); return; }
+  SpreadsheetApp.getUi().alert("ES_buildWaterfall() not found. Make sure ExecSummary.gs is added.");
+}
+function FT_refreshWaterfall() {
+  if (typeof ES_refreshWaterfall === "function") { ES_refreshWaterfall(); return; }
+  SpreadsheetApp.getUi().alert("ES_refreshWaterfall() not found. Make sure ExecSummary.gs is added.");
 }
 /************ OTC DRILL (PER-USER) ************/
 function FT_openOtcDrill() {

@@ -85,8 +85,10 @@ function FDDATA_buildHelper_(ss, helper) {
   const cFA   = FDDATA_findCol_(wh, ["Forecast Amount"]);
   const cCat  = FDDATA_findCol_(wh, ["Forecast Category", "Category", "Stage"]);
   const cManualId = FDDATA_findCol_(wh, ["Manual Line ID", "Manual ID"]);
-  const cBooking = FDDATA_findCol_(wh, ["Booking Type", "Booking Type (Manual)", "Sales Type", "Sales Segment"]);
-  const cOut = FDDATA_findCol_(wh, ["Outreach Status", "Forecast Outreach", "Outreach / Capture Status", "Outreach"]);
+  const cBooking  = FDDATA_findCol_(wh, ["Booking Type", "Booking Type (Manual)", "Sales Type", "Sales Segment"]);
+  const cOut      = FDDATA_findCol_(wh, ["Outreach Status", "Forecast Outreach", "Outreach / Capture Status", "Outreach"]);
+  const cAcctName = FDDATA_findCol_(wh, ["Account Name", "Account"]);
+  const cAcctId   = FDDATA_findCol_(wh, ["Account Full ID", "Salesforce Account ID (FULL ID)", "FULL ID", "Salesforce Account ID", "Account ID", "SFID"]);
   if (![cProd, cCSM, cSrc, cBM, cBA, cFM, cFA].every(Boolean)) {
     throw new Error(
       "CSM_Working_Forecast missing required headers. Need: Product Group, Current CSM, Forecast Source, Baseline Month/Amount, Forecast Month/Amount."
@@ -116,7 +118,9 @@ function FDDATA_buildHelper_(ss, helper) {
     "Δ Amount vs Baseline",  // U
     "Δ Months vs Baseline",  // V
     "Reserved",              // W
-    "Booking Type"           // X
+    "Booking Type",          // X
+    "Account Name",          // Y
+    "Account Full ID"        // Z
   ];
   helper.getRange(1, 1, 1, header.length)
     .setValues([header])
@@ -187,7 +191,9 @@ function FDDATA_buildHelper_(ss, helper) {
       deltaAmt,     // U Δ Amount
       deltaMonths,  // V Δ Months
       "",           // W Reserved
-      bookingType   // X Booking Type
+      bookingType,  // X Booking Type
+      cAcctName ? String(r[cAcctName - 1] || "").trim() : "",  // Y Account Name
+      cAcctId   ? String(r[cAcctId   - 1] || "").trim() : ""   // Z Account Full ID
     ]);
   }
   // Append adjustments
@@ -273,7 +279,9 @@ function FDDATA_appendAdjustments_(adjSheet, out) {
       deltaAmt,      // Δ Amount
       deltaMonths,   // Δ Months
       "",            // Reserved
-      "Renewal"      // Booking Type (keep stable; use Adjs filter to isolate)
+      "Renewal",     // Booking Type (keep stable; use Adjs filter to isolate)
+      "",            // Account Name (not available from adjustments sheet)
+      ""             // Account Full ID
     ]);
   }
 }
@@ -298,7 +306,7 @@ const lastRow = Math.max(2, dataSh.getLastRow());
     const setCsm = new Set();
     const setOutreach = new Set();
     const setFcat = new Set();
-    const setBooking = new Set(["Renewal", "New Logo", "New Sale", "Cross Sell"]); // keep stable list
+    const setBooking = new Set(["Renewal", "New Logo", "Cross Sell"]); // keep stable list
     for (let i = 0; i < values.length; i++) {
       const row = values[i];
       const p = String(row[COL_PRODUCT] || "").trim();
@@ -412,9 +420,10 @@ function FDDATA_rollup_(forecastCategory) {
   const c = String(forecastCategory || "").toLowerCase();
   if (c.includes("adjustment (booked)")) return "Captured";
   if (c.includes("captured")) return "Captured";
+  if (c.includes("not expected")) return "Not Expected"; // must come before "expected"
   if (c.includes("expected")) return "Expected";
+  if (c.includes("pending")) return "Expected";          // Renewal Pending → Expected
   if (c.includes("risk")) return "At Risk";
-  if (c.includes("not expected")) return "Not Expected";
   if (c.includes("data error")) return "Not Expected";
   if (c.includes("non-recurring")) return "Not Expected";
   if (c.includes("lost")) return "Not Expected";

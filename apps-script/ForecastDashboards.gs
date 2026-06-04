@@ -34,7 +34,7 @@ const FD = {
   PRODUCT_ALLOW: ["All", "Nursing", "iHuman", "Med", "Allied Health"],
   MANUAL_OPTIONS: ["Include", "Exclude", "Only"],
   ADJ_OPTIONS: ["Include", "Exclude"],
-  BOOKING_TYPES: ["All", "Renewal", "New Logo", "New Sale", "Cross Sell"],
+  BOOKING_TYPES: ["All", "Renewal", "New Logo", "Cross Sell"],
   THEME: {
     NAVY: "#0b2e4d",
     CARD: "#ffffff",

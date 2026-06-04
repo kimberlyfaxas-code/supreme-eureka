@@ -97,7 +97,7 @@ function HWE_generateWaterfall() {
     const isBaseInPeriod = HWE_isInPeriod_(bDateStr, targetFilter, tz);
     const isFcstInPeriod = HWE_isInPeriod_(fDateStr, targetFilter, tz);
 
-    if (bType === "new logo" || bType === "new sale") {
+    if (bType === "new logo") {
       if (isFcstInPeriod) { newLogo += fAmt; endFcst += fAmt; }
       continue;
     }
