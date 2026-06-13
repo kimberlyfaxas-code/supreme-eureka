@@ -264,234 +264,465 @@ function ES_buildWaterfallTab_(ss) {
 
   // ── Row 1: Title ──────────────────────────────────────────
   sh.setRowHeight(1, 40);
-  sh.getRange("A1:M1").merge()
-    .setValue("FY2026 Renewal Forecast Waterfall")
+  sh.getRange("A1:I1").merge()
+    .setValue("FY2026 Renewal Forecast Bridge")
     .setBackground(ES.THEME.NAVY).setFontColor("#fff")
     .setFontSize(15).setFontWeight("bold")
     .setHorizontalAlignment("left").setVerticalAlignment("middle");
   sh.getRange("A1").setIndent(1);
 
-  // ── Row 2: Period + Filters ───────────────────────────────
+  // ── Row 2: Period | CSM | Booking ────────────────────────
   sh.setRowHeight(2, 30);
-  sh.getRange("A2:M2").setBackground(ES.THEME.SECTION);
+  sh.getRange("A2:I2").setBackground(ES.THEME.SECTION);
+
   sh.getRange("B2").setValue("Period:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
-  sh.getRange("C2").setValue("Q1 2026");
+  sh.getRange("C2").setValue("Jan-26");
   const periods = [...ES.QUARTERS,
     "Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26",
     "Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26"];
   ES_listVal_(sh.getRange("C2"), periods);
 
-  sh.getRange("E2").setValue("Product:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
+  sh.getRange("E2").setValue("CSM:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("F2").setValue("All");
-  ES_listVal_(sh.getRange("F2"), ["All", ...ES.PRODUCTS]);
-
-  sh.getRange("H2").setValue("CSM:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
-  sh.getRange("I2").setValue("All");
   const lists = ss.getSheetByName("_Dashboard_Lists");
-  if (lists) ES_rangeVal_(sh.getRange("I2"), lists.getRange("C2:C"));
+  if (lists) ES_rangeVal_(sh.getRange("F2"), lists.getRange("C2:C"));
 
-  sh.getRange("K2").setValue("Booking:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
-  sh.getRange("L2").setValue("All");
-  ES_listVal_(sh.getRange("L2"), ["All", ...ES.BOOKING]);
+  sh.getRange("H2").setValue("Booking:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
+  sh.getRange("I2").setValue("All");
+  ES_listVal_(sh.getRange("I2"), ["All", ...ES.BOOKING]);
 
   // ── Row 3: instructions ───────────────────────────────────
   sh.setRowHeight(3, 20);
-  sh.getRange("B3:M3").merge()
-    .setValue("↑ Set filters above, then go to Forecast Tools  →  Refresh Waterfall")
+  sh.getRange("B3:I3").merge()
+    .setValue("↑ Set period & filters above, then Forecast Tools → Refresh Waterfall")
     .setFontColor(ES.THEME.MUTED).setFontSize(9).setFontStyle("italic");
 
-  // ── Rows 5+: waterfall table placeholder ─────────────────
+  // ── Row 4: spacer, Row 5: column headers ─────────────────
   sh.setRowHeight(4, 10);
   sh.setRowHeight(5, 24);
-  const wfHeaders = ["Category", "Base $", "Increase $", "Decrease $", "Net Change $", "Running Total $", "# Accounts"];
-  sh.getRange(5, 2, 1, wfHeaders.length).setValues([wfHeaders])
-    .setFontWeight("bold").setBackground(ES.THEME.SECTION);
-
-  sh.getRange("B6:H6").setValues([["← Run 'Refresh Waterfall' from the Forecast Tools menu to populate","","","","","",""]]);
-  sh.getRange("B6").setFontColor(ES.THEME.MUTED).setFontStyle("italic");
+  const wfHeaders = ["Category", "TOTAL ($)", "Nursing", "Med", "iHuman", "Allied Health", "Context"];
+  sh.getRange(5, 2, 1, wfHeaders.length)
+    .setValues([wfHeaders])
+    .setFontWeight("bold")
+    .setBackground(ES.THEME.SECTION);
 
   // ── Column widths ─────────────────────────────────────────
   sh.setColumnWidth(1, 14);
-  sh.setColumnWidth(2, 220);  // Category
-  sh.setColumnWidth(3, 110);  // Base $
-  sh.setColumnWidth(4, 110);  // Increase $
-  sh.setColumnWidth(5, 110);  // Decrease $
-  sh.setColumnWidth(6, 110);  // Net Change $
-  sh.setColumnWidth(7, 120);  // Running Total $
-  sh.setColumnWidth(8, 90);   // # Accounts
+  sh.setColumnWidth(2, 230);  // B Category
+  sh.setColumnWidth(3, 120);  // C TOTAL
+  sh.setColumnWidth(4, 100);  // D Nursing
+  sh.setColumnWidth(5, 100);  // E Med
+  sh.setColumnWidth(6, 100);  // F iHuman
+  sh.setColumnWidth(7, 110);  // G Allied Health
+  sh.setColumnWidth(8, 280);  // H Context
 
-  // Now compute with default selections
   ES_computeAndWriteWaterfall_(ss, sh);
 }
 
 function ES_computeAndWriteWaterfall_(ss, sh) {
-  const dataSh = ss.getSheetByName(ES.DATA);
-  if (!dataSh) return;
+  const wfSrc = ss.getSheetByName("CSM_Working_Forecast");
+  if (!wfSrc) {
+    sh.getRange(6, 2).setValue("ERROR: CSM_Working_Forecast sheet not found.").setFontColor("red");
+    return;
+  }
 
   const period   = String(sh.getRange("C2").getValue() || "").trim();
-  const prodFilt = String(sh.getRange("F2").getValue() || "All").trim();
-  const csmFilt  = String(sh.getRange("I2").getValue() || "All").trim();
-  const bookFilt = String(sh.getRange("L2").getValue() || "All").trim();
+  const csmFilt  = String(sh.getRange("F2").getValue() || "All").trim();
+  const bookFilt = String(sh.getRange("I2").getValue() || "All").trim();
   if (!period) return;
 
-  // Read all of _Dashboard_Data
-  const lastRow = dataSh.getLastRow();
+  // Clear old content (rows 6 onward, 8 cols)
+  sh.getRange(6, 2, 300, 8).clearContent().clearFormat();
+
+  const periodMonths = ES_wf_periodMonths_(period);
+  if (!periodMonths.length) {
+    sh.getRange(6, 2).setValue("Cannot parse period: " + period);
+    return;
+  }
+
+  // ── Read working forecast ─────────────────────────────────
+  const lastRow = wfSrc.getLastRow();
   if (lastRow < 2) return;
-  const ncols = dataSh.getLastColumn();
-  const data = dataSh.getRange(2, 1, lastRow - 1, ncols).getValues();
+  const lastCol = wfSrc.getLastColumn();
+  const rawHeader = wfSrc.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  const data = wfSrc.getRange(2, 1, lastRow - 1, lastCol).getValues();
 
-  // Column indexes (0-based) matching the fixed layout:
-  const CI = { include:0, product:1, csm:2, bMonth:5, fMonth:6, bAmt:7, fAmt:8,
-               bQ:9, fQ:10, isAdj:12, bIn:13, fIn:14, fcat:17, rollup:18,
-               outreach:19, booking:23, acctName:24, acctId:25 };
-
-  const tz = ss.getSpreadsheetTimeZone();
-  const isQtr = period.startsWith("Q");
-
-  function normPeriod(dateVal) {
-    if (!dateVal) return "";
-    let d = dateVal instanceof Date ? dateVal : null;
-    if (!d && typeof dateVal === "number") {
-      const epoch = new Date(Date.UTC(1899,11,30));
-      d = new Date(epoch.getTime() + Math.round(dateVal) * 86400000);
+  // Header → 0-based index map
+  const hmap = {};
+  rawHeader.forEach((h, i) => { hmap[String(h || "").trim().toLowerCase()] = i; });
+  function col() {
+    for (let i = 0; i < arguments.length; i++) {
+      const k = String(arguments[i] || "").trim().toLowerCase();
+      if (hmap[k] !== undefined) return hmap[k];
     }
-    if (!d) return "";
-    if (isQtr) {
-      const q = Math.floor(d.getMonth() / 3) + 1;
-      return `Q${q} ${d.getFullYear()}`;
-    }
-    return Utilities.formatDate(d, tz, "MMM-yy");
+    return -1;
   }
-
-  function matchesPeriod(dateVal) {
-    return normPeriod(dateVal) === period;
-  }
-
-  // Buckets: arrays of account names for drilldown
-  const buckets = {
-    baseline:    { rows: [], amt: 0 },
-    lost:        { rows: [], amt: 0 },
-    movedOut:    { rows: [], amt: 0 },
-    movedIn:     { rows: [], amt: 0 },
-    downsell:    { rows: [], amt: 0 },
-    upsell:      { rows: [], amt: 0 },
-    newLogo:     { rows: [], amt: 0 },
-    crossSell:   { rows: [], amt: 0 },
-    ending:      { rows: [], amt: 0 }
+  const ci = {
+    product:  col("product group","product"),
+    csm:      col("current csm","csm"),
+    src:      col("forecast source","source"),
+    booking:  col("booking type"),
+    bMonth:   col("baseline month"),
+    bAmt:     col("baseline amount","base amount"),
+    fMonth:   col("forecast month"),
+    fAmt:     col("forecast amount"),
+    acctName: col("account name","account"),
+    comment:  col("latest comment","comment","notes"),
   };
 
+  const flagMap = ES_wf_detectFlags_(rawHeader);
+  const PRODS = ["Nursing", "Med", "iHuman", "Allied Health"];
+
+  // Each bucket: { total, n (Nursing), m (Med), ih (iHuman), ah (Allied Health), accts[] }
+  function mkB() {
+    return { total: 0, n: 0, m: 0, ih: 0, ah: 0, accts: [] };
+  }
+  const B = {
+    baseline: mkB(), lostLogo: mkB(),
+    movedOutEarlier: mkB(), movedOutLater: mkB(),
+    movedInPrior: mkB(), movedInNext: mkB(),
+    offCycle: mkB(), manualAdds: mkB(), forecast: mkB(),
+  };
+
+  function addToBucket(bkt, prod, amt, acct, dispAmt, note) {
+    bkt.total += amt;
+    if      (prod === "Nursing")      bkt.n  += amt;
+    else if (prod === "Med")          bkt.m  += amt;
+    else if (prod === "iHuman")       bkt.ih += amt;
+    else if (prod === "Allied Health") bkt.ah += amt;
+    bkt.accts.push({ acct, prod, amt: dispAmt, note });
+  }
+
+  // ── Process rows ──────────────────────────────────────────
   for (const r of data) {
-    if (r[CI.include] === false || String(r[CI.include]).toLowerCase() === "false") continue;
-    if (prodFilt !== "All" && String(r[CI.product] || "") !== prodFilt) continue;
-    if (csmFilt  !== "All" && String(r[CI.csm]     || "") !== csmFilt)  continue;
-    const bt = String(r[CI.booking] || "").trim().toLowerCase();
-    if (bookFilt !== "All" && bt !== bookFilt.toLowerCase()) continue;
+    const prod    = ES_wf_normProd_(ci.product  >= 0 ? r[ci.product]  : "");
+    if (!PRODS.includes(prod)) continue;
+    const csm     = ci.csm     >= 0 ? String(r[ci.csm]     || "").trim() : "";
+    const src     = ci.src     >= 0 ? String(r[ci.src]     || "").trim() : "";
+    const booking = ci.booking >= 0 ? String(r[ci.booking] || "").trim() : "";
 
-    const bInPeriod = matchesPeriod(r[CI.bMonth]);
-    const fInPeriod = matchesPeriod(r[CI.fMonth]);
-    const bAmt = typeof r[CI.bAmt] === "number" ? r[CI.bAmt] : 0;
-    const fAmt = typeof r[CI.fAmt] === "number" ? r[CI.fAmt] : 0;
-    const acct = String(r[CI.acctName] || r[CI.acctId] || "Unknown").trim();
+    if (csmFilt  !== "All" && csm !== csmFilt)  continue;
+    if (bookFilt !== "All" && booking.toLowerCase() !== bookFilt.toLowerCase()) continue;
 
-    if (bt === "new logo") {
-      if (fInPeriod) { buckets.newLogo.rows.push(acct); buckets.newLogo.amt += fAmt; buckets.ending.amt += fAmt; }
-      continue;
+    const bDate = ES_wf_parseDate_(ci.bMonth >= 0 ? r[ci.bMonth] : null);
+    const fDate = ES_wf_parseDate_(ci.fMonth >= 0 ? r[ci.fMonth] : null);
+    const bAmt  = ci.bAmt >= 0 && typeof r[ci.bAmt] === "number" ? r[ci.bAmt] : 0;
+    const fAmt  = ci.fAmt >= 0 && typeof r[ci.fAmt] === "number" ? r[ci.fAmt] : 0;
+    const acct  = ci.acctName >= 0 ? (String(r[ci.acctName] || "").trim() || "Unknown") : "Unknown";
+    const note  = ci.comment  >= 0 ? String(r[ci.comment]  || "").trim() : "";
+    const isManual = /manual/i.test(src);
+
+    const bInPeriod = bDate && periodMonths.some(pm =>
+      pm.year === bDate.getFullYear() && pm.month === bDate.getMonth());
+    const fInPeriod = fDate && periodMonths.some(pm =>
+      pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
+
+    // FORECAST bucket (all lines where forecast lands in period)
+    if (fInPeriod) addToBucket(B.forecast, prod, fAmt, acct, fAmt, note);
+
+    // MANUAL ADDS (forecast in period, source = manual)
+    if (fInPeriod && isManual) {
+      addToBucket(B.manualAdds, prod, fAmt, acct, fAmt, note);
+      continue; // don't classify manual adds into other buckets
     }
-    if (bt === "cross sell") {
-      if (fInPeriod) { buckets.crossSell.rows.push(acct); buckets.crossSell.amt += fAmt; buckets.ending.amt += fAmt; }
-      continue;
-    }
 
+    // Non-manual lines: flag-based classification
     if (bInPeriod) {
-      buckets.baseline.rows.push(acct);
-      buckets.baseline.amt += bAmt;
-      if (fAmt === 0) {
-        buckets.lost.rows.push(acct); buckets.lost.amt += bAmt;
-      } else if (!fInPeriod && normPeriod(r[CI.fMonth]) < period) {
-        buckets.movedOut.rows.push(acct); buckets.movedOut.amt += bAmt; // moved to earlier period
-      } else if (!fInPeriod && normPeriod(r[CI.fMonth]) > period) {
-        buckets.movedOut.rows.push(acct); buckets.movedOut.amt += bAmt; // pushed to later period
-      } else if (fInPeriod) {
-        if (fAmt < bAmt) { buckets.downsell.rows.push(acct); buckets.downsell.amt += (bAmt - fAmt); }
-        else if (fAmt > bAmt) { buckets.upsell.rows.push(acct); buckets.upsell.amt += (fAmt - bAmt); }
+      const bMon = bDate.getMonth();
+
+      // BASELINE (all non-manual lines with baseline in period)
+      addToBucket(B.baseline, prod, bAmt, acct, bAmt, note);
+
+      // LOST LOGO
+      const llCol = flagMap.lostLogo[bMon];
+      if (llCol !== undefined && r[llCol] === true)
+        addToBucket(B.lostLogo, prod, bAmt, acct, bAmt, note);
+
+      // OFF-CYCLE / ZEROED
+      const ocCol = flagMap.offCycle[bMon];
+      if (ocCol !== undefined && r[ocCol] === true)
+        addToBucket(B.offCycle, prod, bAmt, acct, bAmt, note);
+
+      // MOVED OUT (baseline in period, forecast outside period)
+      if (fDate && !fInPeriod) {
+        const fMon = fDate.getMonth();
+        const key  = `${bMon}->${fMon}`;
+        const mvCol = flagMap.movement[key];
+        const moved = mvCol !== undefined ? r[mvCol] === true
+                                          : true; // fallback: trust date mismatch
+        if (moved) {
+          const bTotal = bDate.getFullYear() * 12 + bMon;
+          const fTotal = fDate.getFullYear() * 12 + fMon;
+          if (fTotal < bTotal)
+            addToBucket(B.movedOutEarlier, prod, bAmt, acct, bAmt, note);
+          else
+            addToBucket(B.movedOutLater,   prod, bAmt, acct, bAmt, note);
+        }
       }
     }
-    if (fInPeriod) {
-      if (!bInPeriod) {
-        buckets.movedIn.rows.push(acct); buckets.movedIn.amt += fAmt;
+
+    // MOVED IN (forecast in period, baseline outside period, non-manual)
+    if (fInPeriod && !bInPeriod && !isManual && bDate) {
+      const fMon = fDate.getMonth();
+      const bMon = bDate.getMonth();
+      const key  = `${bMon}->${fMon}`;
+      const mvCol = flagMap.movement[key];
+      const moved = mvCol !== undefined ? r[mvCol] === true : true;
+      if (moved) {
+        const bTotal = bDate.getFullYear() * 12 + bMon;
+        const fTotal = fDate.getFullYear() * 12 + fMon;
+        if (bTotal < fTotal)
+          addToBucket(B.movedInPrior, prod, fAmt, acct, fAmt, note);
+        else
+          addToBucket(B.movedInNext,  prod, fAmt, acct, fAmt, note);
       }
-      buckets.ending.amt += fAmt;
     }
   }
 
-  // Build waterfall rows
-  let running = buckets.baseline.amt;
-  const wfRows = [
-    ["Baseline",             buckets.baseline.amt,  0,                    0,                    0,                       running,                           buckets.baseline.rows.length],
-    ["Lost / Churn",         0,                     0,                    buckets.lost.amt,     -buckets.lost.amt,        running -= buckets.lost.amt,        buckets.lost.rows.length],
-    ["Moved Out of Period",  0,                     0,                    buckets.movedOut.amt, -buckets.movedOut.amt,    running -= buckets.movedOut.amt,    buckets.movedOut.rows.length],
-    ["Pulled In from Other", 0,                     buckets.movedIn.amt,  0,                    buckets.movedIn.amt,      running += buckets.movedIn.amt,     buckets.movedIn.rows.length],
-    ["Downsell",             0,                     0,                    buckets.downsell.amt, -buckets.downsell.amt,    running -= buckets.downsell.amt,    buckets.downsell.rows.length],
-    ["Upsell / Expansion",   0,                     buckets.upsell.amt,   0,                    buckets.upsell.amt,       running += buckets.upsell.amt,      buckets.upsell.rows.length],
-    ["New Logo",             0,                     buckets.newLogo.amt,  0,                    buckets.newLogo.amt,      running += buckets.newLogo.amt,     buckets.newLogo.rows.length],
-    ["Cross Sell",           0,                     buckets.crossSell.amt,0,                    buckets.crossSell.amt,    running += buckets.crossSell.amt,   buckets.crossSell.rows.length],
-    ["Ending Forecast",      buckets.ending.amt,    0,                    0,                    buckets.ending.amt - buckets.baseline.amt, buckets.ending.amt, 0]
-  ];
+  // ── Variance = Forecast − (Baseline − LostLogo − MovedOutEarlier − MovedOutLater
+  //                          + MovedInPrior + MovedInNext − OffCycle + ManualAdds) ──
+  function calcVar(key) {
+    return B.forecast[key] - (
+      B.baseline[key] - B.lostLogo[key]
+      - B.movedOutEarlier[key] - B.movedOutLater[key]
+      + B.movedInPrior[key]   + B.movedInNext[key]
+      - B.offCycle[key]       + B.manualAdds[key]
+    );
+  }
+  const variance = {
+    total: calcVar("total"), n: calcVar("n"), m: calcVar("m"),
+    ih:    calcVar("ih"),    ah: calcVar("ah"),
+  };
 
-  // Clear old waterfall data (rows 6 onwards, before drilldown section)
-  const clearRows = Math.max(wfRows.length + 10, 30);
-  sh.getRange(6, 2, clearRows, 7).clearContent().clearFormat();
+  // ── Period labels ─────────────────────────────────────────
+  const mLabel     = ES_wf_periodLabel_(periodMonths);
+  const priorLabel = ES_wf_adjacentLabel_(periodMonths, -1);
+  const nextLabel  = ES_wf_adjacentLabel_(periodMonths,  1);
 
-  // Write waterfall table
-  sh.getRange(6, 2, wfRows.length, wfRows[0].length).setValues(wfRows);
+  // ── Build waterfall rows  [Cat, Total, Nursing, Med, iHuman, AH, Context] ──
+  const AMT_FMT = "$#,##0;($#,##0)";
+  function mkRow(label, bkt, sign, ctx) {
+    const s = sign;
+    return [label, s*bkt.total, s*bkt.n, s*bkt.m, s*bkt.ih, s*bkt.ah, ctx];
+  }
 
-  // Format
-  const fmtCols = [3,4,5,6,7]; // Base, Inc, Dec, Net, Running (1-based relative to col 2 = col B)
-  fmtCols.forEach(c => sh.getRange(6, 1 + c, wfRows.length, 1).setNumberFormat("$#,##0;($#,##0)"));
-  sh.getRange(6, 8, wfRows.length, 1).setNumberFormat("0"); // # Accounts
+  const wfRows = [];
+  wfRows.push(mkRow(`${mLabel} Baseline`,   B.baseline,  1,  "Starting Amount"));
+  if (Math.abs(B.lostLogo.total)        > 0.5)
+    wfRows.push(mkRow(`${mLabel} Lost Logo`,                 B.lostLogo,        -1, "Accounts with no expected renewal"));
+  if (Math.abs(B.movedOutEarlier.total) > 0.5)
+    wfRows.push(mkRow(`Moved to ${priorLabel} (Out)`,        B.movedOutEarlier, -1, "Booked Early"));
+  if (Math.abs(B.movedOutLater.total)   > 0.5)
+    wfRows.push(mkRow(`Moved to ${nextLabel} (Out)`,         B.movedOutLater,   -1, "Pushed forward"));
+  if (Math.abs(B.movedInPrior.total)    > 0.5)
+    wfRows.push(mkRow(`From ${priorLabel} (In)`,             B.movedInPrior,     1, `${priorLabel} Trailing`));
+  if (Math.abs(B.movedInNext.total)     > 0.5)
+    wfRows.push(mkRow(`From ${nextLabel} (In)`,              B.movedInNext,      1, `Pulled forward from ${nextLabel}`));
+  if (Math.abs(B.offCycle.total)        > 0.5)
+    wfRows.push(mkRow(`${mLabel} Off-Cycle / Zeroed`,        B.offCycle,        -1, "Clients dropped to $0 (Risk/Downsell)"));
+  if (Math.abs(B.manualAdds.total)      > 0.5)
+    wfRows.push(mkRow("Manual Adds",                         B.manualAdds,       1, "Added to the forecast, not in the baseline"));
+  if (Math.abs(variance.total)          > 0.5)
+    wfRows.push([
+      "Variance / Other",
+      variance.total, variance.n, variance.m, variance.ih, variance.ah,
+      "Upsell / Price lift to close gap"
+    ]);
+  wfRows.push(mkRow(`${mLabel} Forecast`,  B.forecast,  1,  "Ending Amount"));
+
+  // ── Write waterfall table ─────────────────────────────────
+  sh.getRange(6, 2, wfRows.length, 7).setValues(wfRows);
+  sh.getRange(6, 3, wfRows.length, 5).setNumberFormat(AMT_FMT);  // C-G
   sh.getRange(6, 2, wfRows.length, 1).setFontWeight("bold");
 
-  // Highlight baseline + ending rows
-  [0, wfRows.length - 1].forEach(i => {
-    sh.getRange(6 + i, 2, 1, 7).setBackground(ES.THEME.SECTION).setFontWeight("bold");
-  });
-  // Decrease rows in light red, increase in light green
   wfRows.forEach((row, i) => {
-    const net = row[4];
-    if (net < 0)      sh.getRange(6 + i, 2, 1, 7).setBackground("#fff0f0");
-    else if (net > 0) sh.getRange(6 + i, 2, 1, 7).setBackground("#f0fff4");
+    const r = 6 + i;
+    const isEnd = i === 0 || i === wfRows.length - 1;
+    if (isEnd) {
+      sh.getRange(r, 2, 1, 7).setBackground(ES.THEME.SECTION).setFontWeight("bold").setFontSize(11);
+    } else if (row[1] < 0) {
+      sh.getRange(r, 2, 1, 7).setBackground("#fff0f0");
+    } else if (row[1] > 0) {
+      sh.getRange(r, 2, 1, 7).setBackground("#f0fff4");
+    }
   });
 
-  // ── Drilldown tables ──────────────────────────────────────
-  let drillRow = 6 + wfRows.length + 2;
-  sh.getRange(drillRow, 2, 1, 7).merge()
-    .setValue("ACCOUNT DRILLDOWN  ·  individual accounts for each waterfall bucket")
-    .setBackground(ES.THEME.NAVY).setFontColor("#fff").setFontWeight("bold");
-  drillRow++;
-
-  const drillBuckets = [
-    { label: "Lost / Churn",          bucket: "lost"      },
-    { label: "Moved Out of Period",    bucket: "movedOut"  },
-    { label: "Pulled In from Other",   bucket: "movedIn"   },
-    { label: "Downsell",               bucket: "downsell"  },
-    { label: "Upsell / Expansion",     bucket: "upsell"    },
-    { label: "New Logo",               bucket: "newLogo"   },
-    { label: "Cross Sell",             bucket: "crossSell" }
+  // ── Drilldown ─────────────────────────────────────────────
+  const drillDefs = [
+    { label: "Lost Logo",              bkt: B.lostLogo        },
+    { label: "Moved Out (Earlier)",    bkt: B.movedOutEarlier },
+    { label: "Moved Out (Later)",      bkt: B.movedOutLater   },
+    { label: "Moved In (From Prior)",  bkt: B.movedInPrior    },
+    { label: "Moved In (From Next)",   bkt: B.movedInNext     },
+    { label: "Off-Cycle / Zeroed",     bkt: B.offCycle        },
+    { label: "Manual Adds",            bkt: B.manualAdds      },
   ];
 
-  for (const db of drillBuckets) {
-    const bkt = buckets[db.bucket];
-    if (bkt.rows.length === 0) continue;
-    sh.getRange(drillRow, 2, 1, 7).merge()
-      .setValue(`${db.label}  (${bkt.rows.length} accounts  ·  $${Math.round(bkt.amt).toLocaleString()})`)
+  let dr = 6 + wfRows.length + 2;
+  sh.getRange(dr, 2, 1, 7).merge()
+    .setValue("ACCOUNT DRILLDOWN  ·  accounts contributing to each bucket")
+    .setBackground(ES.THEME.NAVY).setFontColor("#fff").setFontWeight("bold");
+  dr++;
+
+  for (const dd of drillDefs) {
+    if (!dd.bkt.accts.length) continue;
+    // Section header
+    sh.getRange(dr, 2, 1, 7).merge()
+      .setValue(`${dd.label}  (${dd.bkt.accts.length} accounts  ·  $${Math.round(Math.abs(dd.bkt.total)).toLocaleString()})`)
       .setBackground(ES.THEME.SECTION).setFontWeight("bold");
-    drillRow++;
-    const unique = [...new Set(bkt.rows)].sort();
-    unique.forEach(name => {
-      sh.getRange(drillRow, 2).setValue(name);
-      drillRow++;
-    });
-    drillRow++; // spacer
+    dr++;
+    // Column micro-headers
+    sh.getRange(dr, 2, 1, 4)
+      .setValues([["Account Name", "Product", "Amount ($)", "Notes"]])
+      .setFontWeight("bold").setFontColor(ES.THEME.MUTED).setFontSize(9);
+    dr++;
+    // Rows sorted by |amt| desc
+    const sorted = dd.bkt.accts.slice().sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
+    for (const a of sorted) {
+      sh.getRange(dr, 2).setValue(a.acct);
+      sh.getRange(dr, 3).setValue(a.prod);
+      sh.getRange(dr, 4).setValue(a.amt).setNumberFormat(AMT_FMT);
+      if (a.note) sh.getRange(dr, 5).setValue(a.note).setFontColor(ES.THEME.MUTED).setFontSize(9);
+      dr++;
+    }
+    dr++; // spacer
+  }
+}
+
+/* ==================== WATERFALL HELPERS ==================== */
+
+/**
+ * Scan the header row for known flag column patterns.
+ * Returns { lostLogo: {monthIdx→colIdx}, offCycle: {…}, movement: {"from->to"→colIdx} }
+ */
+function ES_wf_detectFlags_(header) {
+  const PATS = [
+    /\bjan(?:uary)?\b/i,         // 0
+    /\bfeb(?:ruary)?\b/i,        // 1
+    /\bmar(?:ch)?\b/i,           // 2
+    /\bapr(?:il)?\b/i,           // 3
+    /\bmay\b/i,                  // 4
+    /\bjun(?:e)?\b/i,            // 5
+    /\bjul(?:y)?\b/i,            // 6
+    /\baug(?:ust)?\b/i,          // 7
+    /\bsep(?:t(?:ember)?)?\b/i,  // 8
+    /\boct(?:ober)?\b/i,         // 9
+    /\bnov(?:ember)?\b/i,        // 10
+    /\bdec(?:ember)?\b/i,        // 11
+  ];
+
+  function monthsInStr(s) {
+    const found = [];
+    for (let i = 0; i < PATS.length; i++) {
+      const m = PATS[i].exec(s);
+      if (m) found.push({ idx: i, pos: m.index });
+    }
+    return found.sort((a, b) => a.pos - b.pos);
+  }
+
+  const result = { lostLogo: {}, offCycle: {}, movement: {} };
+
+  header.forEach((h, ci) => {
+    const s = String(h || "").trim();
+    if (!s) return;
+
+    if (/lost\s*logo/i.test(s)) {
+      const ms = monthsInStr(s);
+      if (ms.length) result.lostLogo[ms[0].idx] = ci;
+
+    } else if (/current\s+client/i.test(s) && /not\s+expected/i.test(s)) {
+      const ms = monthsInStr(s);
+      if (ms.length) result.offCycle[ms[0].idx] = ci;
+
+    } else if (/\bmoved\b/i.test(s)) {
+      const ms = monthsInStr(s);
+      if (ms.length === 2) {
+        let fromIdx, toIdx;
+        if (/moved\s+from\b/i.test(s)) {
+          // "Moved from A to B" → from=first, to=second
+          fromIdx = ms[0].idx; toIdx = ms[1].idx;
+        } else {
+          // "Moved To B from A" / "Moved to B from A" → to=first, from=second
+          toIdx = ms[0].idx; fromIdx = ms[1].idx;
+        }
+        result.movement[`${fromIdx}->${toIdx}`] = ci;
+      }
+    }
+  });
+
+  return result;
+}
+
+/** Parse "Jan-26" or "Q1 2026" into [{year, month(0-based)}] */
+function ES_wf_periodMonths_(period) {
+  const qMatch = period.match(/^Q([1-4])\s+(\d{4})$/);
+  if (qMatch) {
+    const q = parseInt(qMatch[1], 10);
+    const y = parseInt(qMatch[2], 10);
+    const s = (q - 1) * 3;
+    return [{ year: y, month: s }, { year: y, month: s+1 }, { year: y, month: s+2 }];
+  }
+  const MON = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  const mMatch = period.match(/^([A-Za-z]{3})-(\d{2})$/);
+  if (mMatch) {
+    const m = MON[mMatch[1].toLowerCase()];
+    if (m === undefined) return [];
+    return [{ year: 2000 + parseInt(mMatch[2], 10), month: m }];
+  }
+  return [];
+}
+
+/** Parse a raw cell value to the first-of-month Date, or null */
+function ES_wf_parseDate_(v) {
+  if (!v) return null;
+  if (v instanceof Date && !isNaN(v.getTime()))
+    return new Date(v.getFullYear(), v.getMonth(), 1);
+  if (typeof v === "number") {
+    const d = new Date(new Date(Date.UTC(1899,11,30)).getTime() + Math.round(v)*86400000);
+    if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+  const s = String(v || "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), 1);
+  return null;
+}
+
+/** Normalize a raw product value to one of the four canonical names */
+function ES_wf_normProd_(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "Unknown";
+  const u = s.toUpperCase();
+  if (u.includes("ALLIED"))                     return "Allied Health";
+  if (u === "IHUMAN" || u.includes("IHUMAN"))   return "iHuman";
+  if (s === "iHuman")                            return "iHuman";
+  if (u.includes("NURS"))                        return "Nursing";
+  if (u.includes("MED"))                         return "Med";
+  return "Unknown";
+}
+
+/** "Jan-26" → "Jan",  "Q1 2026" → "Q1" */
+function ES_wf_periodLabel_(periodMonths) {
+  const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  if (periodMonths.length === 1) return ABBR[periodMonths[0].month];
+  return `Q${Math.floor(periodMonths[0].month / 3) + 1}`;
+}
+
+/** Label for the period immediately before (-1) or after (+1) the given period */
+function ES_wf_adjacentLabel_(periodMonths, dir) {
+  const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  if (periodMonths.length === 1) {
+    let y = periodMonths[0].year, m = periodMonths[0].month + dir;
+    if (m < 0)  { m = 11; y--; }
+    if (m > 11) { m = 0;  y++; }
+    return ABBR[m];
+  }
+  const q = Math.floor(periodMonths[0].month / 3) + 1;
+  const y = periodMonths[0].year;
+  if (dir < 0) {
+    return q === 1 ? `Q4 ${y-1}` : `Q${q-1} ${y}`;
+  } else {
+    return q === 4 ? `Q1 ${y+1}` : `Q${q+1} ${y}`;
   }
 }
 
