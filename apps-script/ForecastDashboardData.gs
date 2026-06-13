@@ -83,7 +83,7 @@ function FDDATA_buildHelper_(ss, helper) {
   const cBA   = FDDATA_findCol_(wh, ["Baseline Amount", "Base Amount"]);
   const cFM   = FDDATA_findCol_(wh, ["Forecast Month"]);
   const cFA   = FDDATA_findCol_(wh, ["Forecast Amount"]);
-  const cCat  = FDDATA_findCol_(wh, ["Forecast Category", "Category", "Stage"]);
+  const cCat  = FDDATA_findCol_(wh, ["Forecast Category", "Forecast Catagory", "Category", "Stage"]);
   const cManualId = FDDATA_findCol_(wh, ["Manual Line ID", "Manual ID"]);
   const cBooking  = FDDATA_findCol_(wh, ["Booking Type", "Booking Type (Manual)", "Sales Type", "Sales Segment"]);
   const cOut      = FDDATA_findCol_(wh, ["Outreach Status", "Forecast Outreach", "Outreach / Capture Status", "Outreach"]);
