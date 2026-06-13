@@ -320,9 +320,10 @@ function ES_buildWaterfallTab_(ss) {
 }
 
 function ES_computeAndWriteWaterfall_(ss, sh) {
-  const wfSrc = ss.getSheetByName("CSM_Working_Forecast");
-  if (!wfSrc) {
-    sh.getRange(6, 2).setValue("ERROR: CSM_Working_Forecast sheet not found.").setFontColor("red");
+  // Primary source: _Dashboard_Data (merges CSM_Working_Forecast + 2026_Adjustments)
+  const dataSh = ss.getSheetByName(ES.DATA);
+  if (!dataSh) {
+    sh.getRange(6, 2).setValue("ERROR: Run FDDATA_buildDataAndLists first (missing _Dashboard_Data).").setFontColor("red");
     return;
   }
 
@@ -340,40 +341,21 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     return;
   }
 
-  // ── Read working forecast ─────────────────────────────────
-  const lastRow = wfSrc.getLastRow();
+  // ── Flag lookup from CSM_Working_Forecast (explicit boolean flags) ───────────
+  // keyed by "AccountFullID|yyyyMM" → { isLostLogo, isOffCycle }
+  const flagLookup = ES_wf_buildFlagLookup_(ss);
+
+  // ── Read _Dashboard_Data (stable A:Z = 26 columns) ───────────────────────────
+  // A=0 Include  B=1 Product  C=2 CSM  D=3 Source  E=4 LineType
+  // F=5 BaseMonth  G=6 FcstMonth  H=7 BaseAmt  I=8 FcstAmt
+  // L=11 IsManual  M=12 IsAdj  R=17 FcstCat  X=23 BookingType
+  // Y=24 AcctName  Z=25 AcctFullID
+  const lastRow = dataSh.getLastRow();
   if (lastRow < 2) return;
-  const lastCol = wfSrc.getLastColumn();
-  const rawHeader = wfSrc.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  const data = wfSrc.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const data = dataSh.getRange(2, 1, lastRow - 1, 26).getValues();
 
-  // Header → 0-based index map
-  const hmap = {};
-  rawHeader.forEach((h, i) => { hmap[String(h || "").trim().toLowerCase()] = i; });
-  function col() {
-    for (let i = 0; i < arguments.length; i++) {
-      const k = String(arguments[i] || "").trim().toLowerCase();
-      if (hmap[k] !== undefined) return hmap[k];
-    }
-    return -1;
-  }
-  const ci = {
-    product:  col("product group","product"),
-    csm:      col("current csm","csm"),
-    src:      col("forecast source","source"),
-    booking:  col("booking type"),
-    bMonth:   col("baseline month"),
-    bAmt:     col("baseline amount","base amount"),
-    fMonth:   col("forecast month"),
-    fAmt:     col("forecast amount"),
-    acctName: col("account name","account"),
-    comment:  col("latest comment","comment","notes"),
-  };
-
-  const flagMap = ES_wf_detectFlags_(rawHeader);
   const PRODS = ["Nursing", "Med", "iHuman", "Allied Health"];
 
-  // Each bucket: { total, n (Nursing), m (Med), ih (iHuman), ah (Allied Health), accts[] }
   function mkB() {
     return { total: 0, n: 0, m: 0, ih: 0, ah: 0, accts: [] };
   }
@@ -386,96 +368,90 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
 
   function addToBucket(bkt, prod, amt, acct, dispAmt, note) {
     bkt.total += amt;
-    if      (prod === "Nursing")      bkt.n  += amt;
-    else if (prod === "Med")          bkt.m  += amt;
-    else if (prod === "iHuman")       bkt.ih += amt;
+    if      (prod === "Nursing")       bkt.n  += amt;
+    else if (prod === "Med")           bkt.m  += amt;
+    else if (prod === "iHuman")        bkt.ih += amt;
     else if (prod === "Allied Health") bkt.ah += amt;
     bkt.accts.push({ acct, prod, amt: dispAmt, note });
   }
 
   // ── Process rows ──────────────────────────────────────────
   for (const r of data) {
-    const prod    = ES_wf_normProd_(ci.product  >= 0 ? r[ci.product]  : "");
+    if (r[0] === false) continue;                        // Include = FALSE
+    const prod    = String(r[1]  || "").trim();          // B Product (already normalized)
     if (!PRODS.includes(prod)) continue;
-    const csm     = ci.csm     >= 0 ? String(r[ci.csm]     || "").trim() : "";
-    const src     = ci.src     >= 0 ? String(r[ci.src]     || "").trim() : "";
-    const booking = ci.booking >= 0 ? String(r[ci.booking] || "").trim() : "";
+    const csm     = String(r[2]  || "").trim();          // C CSM
+    const src     = String(r[3]  || "").trim();          // D Forecast Source
+    const booking = String(r[23] || "").trim();          // X Booking Type
+    const fcat    = String(r[17] || "").trim();          // R Forecast Category
+    const acctId  = String(r[25] || "").trim();          // Z Account Full ID
+    const acct    = String(r[24] || "").trim() || acctId || "Unknown"; // Y Account Name
 
     if (csmFilt  !== "All" && csm !== csmFilt)  continue;
     if (bookFilt !== "All" && booking.toLowerCase() !== bookFilt.toLowerCase()) continue;
 
-    const bDate = ES_wf_parseDate_(ci.bMonth >= 0 ? r[ci.bMonth] : null);
-    const fDate = ES_wf_parseDate_(ci.fMonth >= 0 ? r[ci.fMonth] : null);
-    const bAmt  = ci.bAmt >= 0 && typeof r[ci.bAmt] === "number" ? r[ci.bAmt] : 0;
-    const fAmt  = ci.fAmt >= 0 && typeof r[ci.fAmt] === "number" ? r[ci.fAmt] : 0;
-    const acct  = ci.acctName >= 0 ? (String(r[ci.acctName] || "").trim() || "Unknown") : "Unknown";
-    const note  = ci.comment  >= 0 ? String(r[ci.comment]  || "").trim() : "";
-    const isManual = /manual/i.test(src);
+    const bDate = ES_wf_parseDate_(r[5]);                // F Baseline Month
+    const fDate = ES_wf_parseDate_(r[6]);                // G Forecast Month
+    const bAmt  = typeof r[7] === "number" ? r[7] : 0;  // H Baseline Amount
+    const fAmt  = typeof r[8] === "number" ? r[8] : 0;  // I Forecast Amount
+    const isManual = r[11] === true;                     // L Is Manual Add
 
     const bInPeriod = bDate && periodMonths.some(pm =>
       pm.year === bDate.getFullYear() && pm.month === bDate.getMonth());
     const fInPeriod = fDate && periodMonths.some(pm =>
       pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
 
-    // FORECAST bucket (all lines where forecast lands in period)
-    if (fInPeriod) addToBucket(B.forecast, prod, fAmt, acct, fAmt, note);
+    // Resolve explicit flags (from WF boolean columns) falling back to fcat patterns
+    let flags = {};
+    if (bDate && acctId) {
+      const key = `${acctId}|${bDate.getFullYear() * 100 + bDate.getMonth()}`;
+      flags = flagLookup[key] || {};
+    }
+    const fcatLower = fcat.toLowerCase();
+    const isLostLogo = flags.isLostLogo != null
+      ? flags.isLostLogo
+      : /lost\s*account|lost\s*logo/i.test(fcatLower);
+    const isOffCycle = !isLostLogo && (flags.isOffCycle != null
+      ? flags.isOffCycle
+      : /no\s+rev(?:enue)?\s+this\s+term|active\s+client.*no\s+rev|off.?cycle/i.test(fcatLower));
 
-    // MANUAL ADDS (forecast in period, source = manual)
-    if (fInPeriod && isManual) {
-      addToBucket(B.manualAdds, prod, fAmt, acct, fAmt, note);
-      continue; // don't classify manual adds into other buckets
+    // FORECAST
+    if (fInPeriod) addToBucket(B.forecast, prod, fAmt, acct, fAmt, fcat);
+
+    // MANUAL ADDS (manual add lines, or new logo/cross sell with no baseline)
+    if (fInPeriod && (isManual || (bAmt === 0 && booking !== "Renewal"))) {
+      addToBucket(B.manualAdds, prod, fAmt, acct, fAmt, fcat);
+      continue;
     }
 
-    // Non-manual lines: flag-based classification
+    // Non-manual renewal lines
     if (bInPeriod) {
-      const bMon = bDate.getMonth();
+      addToBucket(B.baseline, prod, bAmt, acct, bAmt, fcat);
 
-      // BASELINE (all non-manual lines with baseline in period)
-      addToBucket(B.baseline, prod, bAmt, acct, bAmt, note);
-
-      // LOST LOGO
-      const llCol = flagMap.lostLogo[bMon];
-      if (llCol !== undefined && r[llCol] === true)
-        addToBucket(B.lostLogo, prod, bAmt, acct, bAmt, note);
-
-      // OFF-CYCLE / ZEROED
-      const ocCol = flagMap.offCycle[bMon];
-      if (ocCol !== undefined && r[ocCol] === true)
-        addToBucket(B.offCycle, prod, bAmt, acct, bAmt, note);
+      if (isLostLogo)
+        addToBucket(B.lostLogo, prod, bAmt, acct, bAmt, fcat);
+      else if (isOffCycle)
+        addToBucket(B.offCycle, prod, bAmt, acct, bAmt, fcat);
 
       // MOVED OUT (baseline in period, forecast outside period)
-      if (fDate && !fInPeriod) {
-        const fMon = fDate.getMonth();
-        const key  = `${bMon}->${fMon}`;
-        const mvCol = flagMap.movement[key];
-        const moved = mvCol !== undefined ? r[mvCol] === true
-                                          : true; // fallback: trust date mismatch
-        if (moved) {
-          const bTotal = bDate.getFullYear() * 12 + bMon;
-          const fTotal = fDate.getFullYear() * 12 + fMon;
-          if (fTotal < bTotal)
-            addToBucket(B.movedOutEarlier, prod, bAmt, acct, bAmt, note);
-          else
-            addToBucket(B.movedOutLater,   prod, bAmt, acct, bAmt, note);
-        }
+      if (fDate && !fInPeriod && !isLostLogo && !isOffCycle) {
+        const bTotal = bDate.getFullYear() * 12 + bDate.getMonth();
+        const fTotal = fDate.getFullYear() * 12 + fDate.getMonth();
+        if (fTotal < bTotal)
+          addToBucket(B.movedOutEarlier, prod, bAmt, acct, bAmt, fcat);
+        else
+          addToBucket(B.movedOutLater,   prod, bAmt, acct, bAmt, fcat);
       }
     }
 
-    // MOVED IN (forecast in period, baseline outside period, non-manual)
+    // MOVED IN (forecast in period, baseline outside period)
     if (fInPeriod && !bInPeriod && !isManual && bDate) {
-      const fMon = fDate.getMonth();
-      const bMon = bDate.getMonth();
-      const key  = `${bMon}->${fMon}`;
-      const mvCol = flagMap.movement[key];
-      const moved = mvCol !== undefined ? r[mvCol] === true : true;
-      if (moved) {
-        const bTotal = bDate.getFullYear() * 12 + bMon;
-        const fTotal = fDate.getFullYear() * 12 + fMon;
-        if (bTotal < fTotal)
-          addToBucket(B.movedInPrior, prod, fAmt, acct, fAmt, note);
-        else
-          addToBucket(B.movedInNext,  prod, fAmt, acct, fAmt, note);
-      }
+      const bTotal = bDate.getFullYear() * 12 + bDate.getMonth();
+      const fTotal = fDate.getFullYear() * 12 + fDate.getMonth();
+      if (bTotal < fTotal)
+        addToBucket(B.movedInPrior, prod, fAmt, acct, fAmt, fcat);
+      else
+        addToBucket(B.movedInNext,  prod, fAmt, acct, fAmt, fcat);
     }
   }
 
@@ -706,6 +682,53 @@ function ES_wf_periodLabel_(periodMonths) {
   const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   if (periodMonths.length === 1) return ABBR[periodMonths[0].month];
   return `Q${Math.floor(periodMonths[0].month / 3) + 1}`;
+}
+
+/**
+ * Build a lookup from CSM_Working_Forecast boolean flag columns.
+ * Returns { "AccountFullID|yyyyMM" → { isLostLogo, isOffCycle } }
+ * Used to augment _Dashboard_Data rows with explicit CSM classifications.
+ */
+function ES_wf_buildFlagLookup_(ss) {
+  const wfSh = ss.getSheetByName("CSM_Working_Forecast");
+  if (!wfSh || wfSh.getLastRow() < 2) return {};
+
+  const lastCol   = wfSh.getLastColumn();
+  const rawHeader = wfSh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  const data      = wfSh.getRange(2, 1, wfSh.getLastRow() - 1, lastCol).getValues();
+
+  const hmap = {};
+  rawHeader.forEach((h, i) => { hmap[String(h || "").trim().toLowerCase()] = i; });
+  function col() {
+    for (let i = 0; i < arguments.length; i++) {
+      const k = String(arguments[i] || "").trim().toLowerCase();
+      if (hmap[k] !== undefined) return hmap[k];
+    }
+    return -1;
+  }
+
+  const ciAcct = col("account full id","salesforce account id (full id)","full id","sfid");
+  const ciBM   = col("baseline month");
+  const flagMap = ES_wf_detectFlags_(rawHeader);
+
+  const lookup = {};
+  for (const r of data) {
+    const acctId = ciAcct >= 0 ? String(r[ciAcct] || "").trim() : "";
+    if (!acctId) continue;
+    const bDate = ES_wf_parseDate_(ciBM >= 0 ? r[ciBM] : null);
+    if (!bDate) continue;
+
+    const key  = `${acctId}|${bDate.getFullYear() * 100 + bDate.getMonth()}`;
+    const bMon = bDate.getMonth();
+    const llCol = flagMap.lostLogo[bMon];
+    const ocCol = flagMap.offCycle[bMon];
+
+    const existing = lookup[key] || {};
+    if (llCol !== undefined) existing.isLostLogo = existing.isLostLogo || (r[llCol] === true);
+    if (ocCol !== undefined) existing.isOffCycle  = existing.isOffCycle  || (r[ocCol]  === true);
+    lookup[key] = existing;
+  }
+  return lookup;
 }
 
 /** Label for the period immediately before (-1) or after (+1) the given period */
