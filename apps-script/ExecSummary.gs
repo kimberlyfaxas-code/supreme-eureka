@@ -256,6 +256,7 @@ function ES_buildSummaryTab_(ss) {
 // Source sheets for the waterfall (no _Dashboard_Data dependency)
 const ES_WF_SRC  = "CSM_Working_Forecast";
 const ES_WF_MAN  = "Manual_Forecast_AddOns";
+const ES_WF_ADJ  = "2026_Adjustments";
 
 // Column indices (0-based) in CSM_Working_Forecast
 const ES_WF_C = {
@@ -387,6 +388,49 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
   if (lastRow < 2) return;
   const data = wfSh.getRange(2, 1, lastRow - 1, 21).getValues();
 
+  // ── Read 2026_Adjustments and normalize to same 21-col format ──
+  const adjRows = [];
+  const adjSh = ss.getSheetByName(ES_WF_ADJ);
+  if (adjSh && adjSh.getLastRow() > 1) {
+    const ahRaw = adjSh.getRange(1, 1, 1, adjSh.getLastColumn()).getValues()[0];
+    const ah = {};
+    ahRaw.forEach((h, i) => { if (h) ah[String(h).trim()] = i; });
+    function adjCol(candidates) {
+      for (const c of candidates) { if (ah[c] !== undefined) return ah[c]; }
+      return -1;
+    }
+    const ai_csm  = adjCol(["Current CSM", "CSM", "Client Success Manager"]);
+    const ai_prod = adjCol(["Product Group", "Product"]);
+    const ai_name = adjCol(["Account Name", "Account"]);
+    const ai_bm   = adjCol(["Baseline Month", "Month", "Date"]);
+    const ai_ba   = adjCol(["Baseline Amount", "Amount", "Baseline"]);
+    const ai_fm   = adjCol(["Forecast Month"]);
+    const ai_fa   = adjCol(["Forecast Amount", "Forecast"]);
+    const ai_cat  = adjCol(["Forecast Category", "Category"]);
+    const ai_out  = adjCol(["Outreach Status", "Outreach"]);
+    const ai_cmt  = adjCol(["Latest Comment", "Comment", "Notes"]);
+    const aRows   = adjSh.getRange(2, 1, adjSh.getLastRow() - 1, adjSh.getLastColumn()).getValues();
+    for (const r of aRows) {
+      const baV = ai_ba >= 0 ? r[ai_ba] : 0;
+      const faV = ai_fa >= 0 ? r[ai_fa] : (ai_ba >= 0 ? r[ai_ba] : 0);
+      if (!baV && !faV) continue;
+      const synth = new Array(21).fill("");
+      synth[C.src]      = "Adjustment";
+      synth[C.csm]      = ai_csm  >= 0 ? r[ai_csm]  : "";
+      synth[C.acctName] = ai_name >= 0 ? r[ai_name] : "";
+      synth[C.product]  = ai_prod >= 0 ? r[ai_prod] : "";
+      synth[C.bMonth]   = ai_bm   >= 0 ? r[ai_bm]   : "";
+      synth[C.bAmt]     = typeof baV === "number" ? baV : 0;
+      synth[C.fMonth]   = ai_fm   >= 0 ? r[ai_fm]   : (ai_bm >= 0 ? r[ai_bm] : "");
+      synth[C.fAmt]     = typeof faV === "number" ? faV : 0;
+      synth[C.fCat]     = (ai_cat >= 0 && r[ai_cat]) ? r[ai_cat] : "Not expected (Adjustment)";
+      synth[C.outreach] = ai_out  >= 0 ? r[ai_out]  : "";
+      synth[C.comment]  = ai_cmt  >= 0 ? r[ai_cmt]  : "";
+      adjRows.push(synth);
+    }
+  }
+  const allData = adjRows.length ? data.concat(adjRows) : data;
+
   function mkB() { return { total: 0, n: 0, m: 0, ih: 0, ah: 0, accts: [] }; }
   const B = {
     baseline:       mkB(),
@@ -397,6 +441,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     movedInNext:    mkB(),
     offCycle:       mkB(),
     manualAdds:     mkB(),
+    adjustments:    mkB(),  // net impact from 2026_Adjustments rows
     forecast:       mkB(),
   };
 
@@ -409,7 +454,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     if (Math.abs(amt) > 0.009) bkt.accts.push({ acct, prod, amt, note });
   }
 
-  for (const r of data) {
+  for (const r of allData) {
     const csm    = String(r[C.csm]     || "").trim();
     const rawPrd = String(r[C.product] || "").trim();
     const prod   = ES_wf_normProd_(rawPrd);
@@ -445,6 +490,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     const fInPeriod = fDate && periodMonths.some(
       pm => pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
 
+    const isAdj      = src === "Adjustment";  // rows from 2026_Adjustments
     const isManual   = /manual\s*add/i.test(src);
     const isLostLogo = /lost\s*(account|logo)/i.test(fcat);
     const isOffCycle = !isLostLogo && /active\s+client.*no\s+rev|no\s+rev.*this\s+term/i.test(fcat);
@@ -452,6 +498,15 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
 
     // ── FORECAST bucket (all rows with forecast in period) ──
     if (fInPeriod) addTo(B.forecast, prod, fAmt, acct, note);
+
+    // ── ADJUSTMENT rows (from 2026_Adjustments sheet) ──
+    if (isAdj) {
+      if (bInPeriod) addTo(B.baseline, prod, bAmt, acct, note);
+      // Track the net adjustment impact (fAmt − bAmt for period-matching sides)
+      const adjNet = (fInPeriod ? fAmt : 0) - (bInPeriod ? bAmt : 0);
+      if (Math.abs(adjNet) > 0.009) addTo(B.adjustments, prod, adjNet, acct, note || "Adjustment");
+      continue;
+    }
 
     // ── MANUAL ADDS (source = Manual Add, or bAmt=0 with forecast) ──
     if (fInPeriod && (isManual || (bAmt === 0 && !bDate))) {
@@ -535,6 +590,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
       - B.movedOutEarlier[k]- B.movedOutLater[k]
       + B.movedInPrior[k]   + B.movedInNext[k]
       + B.manualAdds[k]
+      + B.adjustments[k]
     );
   }
   const variance = {
@@ -566,6 +622,8 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     wfRows.push(mkRow("Off-Cycle / No Rev This Term",    B.offCycle,        -1, "Active clients with no rev this period"));
   if (Math.abs(B.manualAdds.total)      > 0.5)
     wfRows.push(mkRow("Manual Adds",                     B.manualAdds,       1, "Added to forecast, not in baseline"));
+  if (Math.abs(B.adjustments.total)    > 0.5)
+    wfRows.push(mkRow("Adjustments",                     B.adjustments,      1, "Net impact from 2026 adjustment entries"));
   if (Math.abs(variance.total)          > 0.5)
     wfRows.push([
       "Variance / Other",
@@ -601,6 +659,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     { label: "Moved In (from Later)",    bkt: B.movedInNext     },
     { label: "Off-Cycle / No Rev",       bkt: B.offCycle        },
     { label: "Manual Adds",              bkt: B.manualAdds      },
+    { label: "Adjustments",             bkt: B.adjustments     },
   ];
 
   let dr = 6 + wfRows.length + 2;
@@ -639,7 +698,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
 
   // Group rows by CSM to show per-rep delta
   const csmMap = {};
-  for (const r of data) {
+  for (const r of allData) {
     const csm  = String(r[C.csm]     || "(Unassigned)").trim();
     const prod = ES_wf_normProd_(String(r[C.product] || "").trim());
     if (prod === "Unknown") continue;
