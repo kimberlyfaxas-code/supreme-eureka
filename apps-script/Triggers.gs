@@ -15,7 +15,8 @@ function TR_onEdit(e) {
     const isDash =
       shName === "Health Retention Dashboard (FY2026)" ||
       shName === "CSM Retention Dashboard (FY2026)" ||
-      shName === "FY2026 Monthly Waterfall";
+      shName === "FY2026 Monthly Waterfall" ||
+      shName === "FY2026 Waterfall";
     // 1) Dashboard filter behavior (multi-select) — NEVER trigger rebuilds
     if (isDash) {
       if (typeof MSF_onEdit_ === "function") MSF_onEdit_(e);

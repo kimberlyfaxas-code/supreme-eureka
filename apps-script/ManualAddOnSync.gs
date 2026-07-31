@@ -122,9 +122,9 @@ function MA_submitManualRow_(manualRow) {
   const includeCol = mh["Include in Forecast"] || mh["Include"] || mh["Use"] || mh["Active"];
   const fmCol = mh["Forecast Month"];
   const faCol = mh["Forecast Amount"];
-  const btCol = mh["Booking Type"]; // NEW
+  const btCol = mh["Booking Type"] || mh["Sales Type"]; // alias: "Sales Type" is accepted too
   if (!includeCol || !fmCol || !faCol || !btCol) {
-  throw new Error('Manual tab must include: "Include in Forecast", "Booking Type", "Forecast Month", "Forecast Amount".');
+  throw new Error('Manual tab must include: "Include in Forecast", "Booking Type" (or "Sales Type"), "Forecast Month", "Forecast Amount".');
   }
   const idCol = MA_findAnyHeaderCol_(mh, MA_CFG.MANUAL_ID_HEADERS);
   if (!idCol) {
@@ -238,9 +238,10 @@ MA_setFirstHeader_(wh, out, [
     const prod = String(manualRowVals[mh["Product Group"] - 1] || "").trim();
     if (prod) set("Product Group", prod);
   }
-  // Booking Type: manual only (Renewal / New Sale)
-  if (mh["Booking Type"] && wh["Booking Type"]) {
-    const bt = String(manualRowVals[mh["Booking Type"] - 1] || "").trim();
+  // Booking Type: manual only (Renewal / New Sale); accept "Sales Type" alias
+  const btSrcCol = mh["Booking Type"] || mh["Sales Type"];
+  if (btSrcCol && wh["Booking Type"]) {
+    const bt = String(manualRowVals[btSrcCol - 1] || "").trim();
     if (bt) set("Booking Type", bt);
   }
   // Baseline rules for manual adds
@@ -285,9 +286,10 @@ function MA_fillWorkingBlanks_(manual, working, manualRow, workingRow, mh, wh, o
     const prod = String(mVals[mh["Product Group"] - 1] || "").trim();
     if (prod) fill("Product Group", prod);
   }
-  // Booking Type: fill only if blank in Working
-  if (mh["Booking Type"] && wh["Booking Type"]) {
-    const bt = String(mVals[mh["Booking Type"] - 1] || "").trim();
+  // Booking Type: fill only if blank in Working; accept "Sales Type" alias
+  const btSrcFill = mh["Booking Type"] || mh["Sales Type"];
+  if (btSrcFill && wh["Booking Type"]) {
+    const bt = String(mVals[btSrcFill - 1] || "").trim();
     if (bt) fill("Booking Type", bt);
   }
   // Forecast fields

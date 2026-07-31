@@ -10,9 +10,10 @@ const MSF_CFG = {
   RESET_VALUES: new Set(["All", ""]),
   // Multi-select targets ONLY (keep this ONLY for Booking Type)
   TARGETS: {
-    "Health Retention Dashboard (FY2026)": new Set(["E2"]), // Booking
-    "CSM Retention Dashboard (FY2026)": new Set(["G2"]),    // Booking
-    "FY2026 Monthly Waterfall": new Set(["H2"])             // Booking
+    "Health Retention Dashboard (FY2026)": new Set(["E2"]),        // Booking
+    "CSM Retention Dashboard (FY2026)": new Set(["G2"]),           // Booking
+    "FY2026 Monthly Waterfall": new Set(["H2"]),                   // Booking
+    "FY2026 Waterfall": new Set(["F2", "I2", "L2"])                // CSM, Product, Fcst Cat
   },
   // If you truly want Manual/Adjs ALWAYS included, DO NOT manage them here at all.
   MODE_CELLS: new Set([]),

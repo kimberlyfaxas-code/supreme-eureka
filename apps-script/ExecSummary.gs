@@ -52,11 +52,8 @@ function ES_buildExecSummary() {
 
 function ES_buildWaterfall() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss.getSheetByName(ES.DATA)) {
-    throw new Error("Missing _Dashboard_Data. Run FDDATA_buildDataAndLists first.");
-  }
   ES_buildWaterfallTab_(ss);
-  ss.toast("Waterfall built. Pick a period in B2, then run ES_refreshWaterfall.", "Forecast Tools", 6);
+  ss.toast("Waterfall built. Pick a period in C2, then Forecast Tools → Refresh Waterfall.", "Forecast Tools", 6);
 }
 
 /** Recomputes the waterfall table using the current filter/period selections.
@@ -256,6 +253,26 @@ function ES_buildSummaryTab_(ss) {
 
 /* ==================== WATERFALL TAB ==================== */
 
+// Source sheets for the waterfall (no _Dashboard_Data dependency)
+const ES_WF_SRC  = "CSM_Working_Forecast";
+const ES_WF_MAN  = "Manual_Forecast_AddOns";
+
+// Column indices (0-based) in CSM_Working_Forecast
+const ES_WF_C = {
+  acctId:   1,   // Account ID
+  src:      2,   // Forecast Source
+  csm:      8,   // Current CSM
+  acctName: 10,  // Account Name
+  product:  11,  // Product Group
+  bMonth:   14,  // Baseline Month
+  bAmt:     15,  // Baseline Amount
+  fMonth:   16,  // Forecast Month
+  fAmt:     17,  // Forecast Amount
+  outreach: 18,  // Outreach Status
+  fCat:     19,  // Forecast Category
+  comment:  20,  // Latest Comment
+};
+
 function ES_buildWaterfallTab_(ss) {
   const sh = ES_getOrCreate_(ss, ES.WF_SHEET);
   sh.clear();
@@ -264,37 +281,48 @@ function ES_buildWaterfallTab_(ss) {
 
   // ── Row 1: Title ──────────────────────────────────────────
   sh.setRowHeight(1, 40);
-  sh.getRange("A1:I1").merge()
+  sh.getRange("A1:H1").merge()
     .setValue("FY2026 Renewal Forecast Bridge")
     .setBackground(ES.THEME.NAVY).setFontColor("#fff")
     .setFontSize(15).setFontWeight("bold")
     .setHorizontalAlignment("left").setVerticalAlignment("middle");
   sh.getRange("A1").setIndent(1);
 
-  // ── Row 2: Period | CSM | Booking ────────────────────────
+  // ── Row 2: Period | CSM | Product | Forecast Category ────
   sh.setRowHeight(2, 30);
-  sh.getRange("A2:I2").setBackground(ES.THEME.SECTION);
+  sh.getRange("A2:L2").setBackground(ES.THEME.SECTION);
 
+  // Period (single-select)
   sh.getRange("B2").setValue("Period:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("C2").setValue("Jan-26");
-  const periods = [...ES.QUARTERS,
+  const periods = ["Full Year 2026", ...ES.QUARTERS,
+    "Dec-25",
     "Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26",
     "Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26"];
   ES_listVal_(sh.getRange("C2"), periods);
 
+  // CSM (multi-select)
   sh.getRange("E2").setValue("CSM:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("F2").setValue("All");
-  const lists = ss.getSheetByName("_Dashboard_Lists");
-  if (lists) ES_rangeVal_(sh.getRange("F2"), lists.getRange("C2:C"));
+  const csmList = ES_wf_getUnique_(ss, ES_WF_SRC, ES_WF_C.csm).sort();
+  ES_listVal_(sh.getRange("F2"), ["All", ...csmList]);
 
-  sh.getRange("H2").setValue("Booking:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
+  // Product (multi-select)
+  sh.getRange("H2").setValue("Product:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("I2").setValue("All");
-  ES_listVal_(sh.getRange("I2"), ["All", ...ES.BOOKING]);
+  ES_listVal_(sh.getRange("I2"), ["All", "Nursing", "Med", "iHuman", "Allied Health"]);
+
+  // Forecast Category (multi-select)
+  sh.getRange("K2").setValue("Fcst Cat:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
+  sh.getRange("L2").setValue("All");
+  const catList = ES_wf_getUnique_(ss, ES_WF_SRC, ES_WF_C.fCat, true)
+    .filter(v => v && v.trim());
+  ES_listVal_(sh.getRange("L2"), ["All", "Standard (No Category)", ...catList]);
 
   // ── Row 3: instructions ───────────────────────────────────
   sh.setRowHeight(3, 20);
-  sh.getRange("B3:I3").merge()
-    .setValue("↑ Set period & filters above, then Forecast Tools → Refresh Waterfall")
+  sh.getRange("B3:L3").merge()
+    .setValue("↑ Set filters above, then Forecast Tools → Refresh Waterfall  |  CSM, Product, Fcst Cat support comma-separated multi-select (click again to deselect)")
     .setFontColor(ES.THEME.MUTED).setFontSize(9).setFontStyle("italic");
 
   // ── Row 4: spacer, Row 5: column headers ─────────────────
@@ -309,31 +337,34 @@ function ES_buildWaterfallTab_(ss) {
   // ── Column widths ─────────────────────────────────────────
   sh.setColumnWidth(1, 14);
   sh.setColumnWidth(2, 230);  // B Category
-  sh.setColumnWidth(3, 120);  // C TOTAL
+  sh.setColumnWidth(3, 120);  // C TOTAL / Period filter
   sh.setColumnWidth(4, 100);  // D Nursing
-  sh.setColumnWidth(5, 100);  // E Med
-  sh.setColumnWidth(6, 100);  // F iHuman
+  sh.setColumnWidth(5, 100);  // E Med / CSM label
+  sh.setColumnWidth(6, 100);  // F iHuman / CSM value
   sh.setColumnWidth(7, 110);  // G Allied Health
-  sh.setColumnWidth(8, 280);  // H Context
+  sh.setColumnWidth(8, 260);  // H Context
+  sh.setColumnWidth(9, 100);  // I Product value
+  sh.setColumnWidth(11, 70);  // K Category label
+  sh.setColumnWidth(12, 200); // L Category value
 
   ES_computeAndWriteWaterfall_(ss, sh);
 }
 
 function ES_computeAndWriteWaterfall_(ss, sh) {
-  // Primary source: _Dashboard_Data (merges CSM_Working_Forecast + 2026_Adjustments)
-  const dataSh = ss.getSheetByName(ES.DATA);
-  if (!dataSh) {
-    sh.getRange(6, 2).setValue("ERROR: Run FDDATA_buildDataAndLists first (missing _Dashboard_Data).").setFontColor("red");
+  const wfSh = ss.getSheetByName(ES_WF_SRC);
+  if (!wfSh) {
+    sh.getRange(6, 2).setValue("ERROR: Missing sheet " + ES_WF_SRC).setFontColor("red");
     return;
   }
 
   const period   = String(sh.getRange("C2").getValue() || "").trim();
-  const csmFilt  = String(sh.getRange("F2").getValue() || "All").trim();
-  const bookFilt = String(sh.getRange("I2").getValue() || "All").trim();
+  const csmRaw   = String(sh.getRange("F2").getValue() || "All").trim();
+  const prodRaw  = String(sh.getRange("I2").getValue() || "All").trim();
+  const catRaw   = String(sh.getRange("L2").getValue() || "All").trim();
   if (!period) return;
 
-  // Clear old content (rows 6 onward, 8 cols)
-  sh.getRange(6, 2, 300, 8).clearContent().clearFormat();
+  // Clear old content (rows 6+, 8 cols wide)
+  sh.getRange(6, 2, 400, 8).clearContent().clearFormat();
 
   const periodMonths = ES_wf_periodMonths_(period);
   if (!periodMonths.length) {
@@ -341,197 +372,235 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     return;
   }
 
-  // ── Flag lookup from CSM_Working_Forecast (explicit boolean flags) ───────────
-  // keyed by "AccountFullID|yyyyMM" → { isLostLogo, isOffCycle }
-  const flagLookup = ES_wf_buildFlagLookup_(ss);
-
-  // ── Read _Dashboard_Data (stable A:Z = 26 columns) ───────────────────────────
-  // A=0 Include  B=1 Product  C=2 CSM  D=3 Source  E=4 LineType
-  // F=5 BaseMonth  G=6 FcstMonth  H=7 BaseAmt  I=8 FcstAmt
-  // L=11 IsManual  M=12 IsAdj  R=17 FcstCat  X=23 BookingType
-  // Y=24 AcctName  Z=25 AcctFullID
-  const lastRow = dataSh.getLastRow();
-  if (lastRow < 2) return;
-  const data = dataSh.getRange(2, 1, lastRow - 1, 26).getValues();
-
-  const PRODS = ["Nursing", "Med", "iHuman", "Allied Health"];
-
-  function mkB() {
-    return { total: 0, n: 0, m: 0, ih: 0, ah: 0, accts: [] };
+  // ── Parse multi-select filters (comma-separated; "All" = no filter) ──
+  function parseFilter(raw) {
+    if (!raw || raw === "All") return null;
+    return raw.split(/,\s*/).map(s => s.trim().toLowerCase()).filter(Boolean);
   }
+  const csmFilter  = parseFilter(csmRaw);
+  const prodFilter = parseFilter(prodRaw);
+  const catFilter  = parseFilter(catRaw);
+
+  // ── Read CSM_Working_Forecast ──────────────────────────────
+  const C = ES_WF_C;
+  const lastRow = wfSh.getLastRow();
+  if (lastRow < 2) return;
+  const data = wfSh.getRange(2, 1, lastRow - 1, 21).getValues();
+
+  function mkB() { return { total: 0, n: 0, m: 0, ih: 0, ah: 0, accts: [] }; }
   const B = {
-    baseline: mkB(), lostLogo: mkB(),
-    movedOutEarlier: mkB(), movedOutLater: mkB(),
-    movedInPrior: mkB(), movedInNext: mkB(),
-    offCycle: mkB(), manualAdds: mkB(), forecast: mkB(),
+    baseline:       mkB(),
+    lostLogo:       mkB(),
+    movedOutEarlier:mkB(),
+    movedOutLater:  mkB(),
+    movedInPrior:   mkB(),
+    movedInNext:    mkB(),
+    offCycle:       mkB(),
+    manualAdds:     mkB(),
+    forecast:       mkB(),
   };
 
-  function addToBucket(bkt, prod, amt, acct, dispAmt, note) {
+  function addTo(bkt, prod, amt, acct, note) {
     bkt.total += amt;
     if      (prod === "Nursing")       bkt.n  += amt;
     else if (prod === "Med")           bkt.m  += amt;
     else if (prod === "iHuman")        bkt.ih += amt;
     else if (prod === "Allied Health") bkt.ah += amt;
-    bkt.accts.push({ acct, prod, amt: dispAmt, note });
+    if (Math.abs(amt) > 0.009) bkt.accts.push({ acct, prod, amt, note });
   }
 
-  // ── Process rows ──────────────────────────────────────────
   for (const r of data) {
-    if (r[0] === false) continue;                        // Include = FALSE
-    const prod    = String(r[1]  || "").trim();          // B Product (already normalized)
-    if (!PRODS.includes(prod)) continue;
-    const csm     = String(r[2]  || "").trim();          // C CSM
-    const src     = String(r[3]  || "").trim();          // D Forecast Source
-    const booking = String(r[23] || "").trim();          // X Booking Type
-    const fcat    = String(r[17] || "").trim();          // R Forecast Category
-    const acctId  = String(r[25] || "").trim();          // Z Account Full ID
-    const acct    = String(r[24] || "").trim() || acctId || "Unknown"; // Y Account Name
+    const csm    = String(r[C.csm]     || "").trim();
+    const rawPrd = String(r[C.product] || "").trim();
+    const prod   = ES_wf_normProd_(rawPrd);
+    const acct   = String(r[C.acctName]|| "").trim() || "Unknown";
+    const fcat   = String(r[C.fCat]    || "").trim();
+    const src    = String(r[C.src]     || "").trim();
+    const note   = String(r[C.comment] || fcat || "").trim();
 
-    if (csmFilt  !== "All" && csm !== csmFilt)  continue;
-    if (bookFilt !== "All" && booking.toLowerCase() !== bookFilt.toLowerCase()) continue;
+    if (prod === "Unknown") continue;
 
-    const bDate = ES_wf_parseDate_(r[5]);                // F Baseline Month
-    const fDate = ES_wf_parseDate_(r[6]);                // G Forecast Month
-    const bAmt  = typeof r[7] === "number" ? r[7] : 0;  // H Baseline Amount
-    const fAmt  = typeof r[8] === "number" ? r[8] : 0;  // I Forecast Amount
-    const isManual = r[11] === true;                     // L Is Manual Add
-
-    const bInPeriod = bDate && periodMonths.some(pm =>
-      pm.year === bDate.getFullYear() && pm.month === bDate.getMonth());
-    const fInPeriod = fDate && periodMonths.some(pm =>
-      pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
-
-    // Resolve explicit flags (from WF boolean columns) falling back to fcat patterns
-    let flags = {};
-    if (bDate && acctId) {
-      const key = `${acctId}|${bDate.getFullYear() * 100 + bDate.getMonth()}`;
-      flags = flagLookup[key] || {};
-    }
-    const fcatLower = fcat.toLowerCase();
-    const isLostLogo = flags.isLostLogo != null
-      ? flags.isLostLogo
-      : /lost\s*account|lost\s*logo/i.test(fcatLower);
-    const isOffCycle = !isLostLogo && (flags.isOffCycle != null
-      ? flags.isOffCycle
-      : /no\s+rev(?:enue)?\s+this\s+term|active\s+client.*no\s+rev|off.?cycle/i.test(fcatLower));
-
-    // FORECAST
-    if (fInPeriod) addToBucket(B.forecast, prod, fAmt, acct, fAmt, fcat);
-
-    // MANUAL ADDS (manual add lines, or new logo/cross sell with no baseline)
-    if (fInPeriod && (isManual || (bAmt === 0 && booking !== "Renewal"))) {
-      addToBucket(B.manualAdds, prod, fAmt, acct, fAmt, fcat);
-      continue;
-    }
-
-    // Non-manual renewal lines
-    if (bInPeriod) {
-      addToBucket(B.baseline, prod, bAmt, acct, bAmt, fcat);
-
-      if (isLostLogo)
-        addToBucket(B.lostLogo, prod, bAmt, acct, bAmt, fcat);
-      else if (isOffCycle)
-        addToBucket(B.offCycle, prod, bAmt, acct, bAmt, fcat);
-
-      // MOVED OUT (baseline in period, forecast outside period)
-      if (fDate && !fInPeriod && !isLostLogo && !isOffCycle) {
-        const bTotal = bDate.getFullYear() * 12 + bDate.getMonth();
-        const fTotal = fDate.getFullYear() * 12 + fDate.getMonth();
-        if (fTotal < bTotal)
-          addToBucket(B.movedOutEarlier, prod, bAmt, acct, bAmt, fcat);
-        else
-          addToBucket(B.movedOutLater,   prod, bAmt, acct, bAmt, fcat);
+    // ── Apply filters ──
+    if (csmFilter  && !csmFilter.includes(csm.toLowerCase())) continue;
+    if (prodFilter && !prodFilter.includes(prod.toLowerCase())) continue;
+    if (catFilter) {
+      const hasStd = catFilter.includes("standard (no category)");
+      if (!fcat) {
+        if (!hasStd) continue;
+      } else {
+        if (!catFilter.some(f => fcat.toLowerCase() === f || fcat.toLowerCase().includes(f))) continue;
       }
     }
 
-    // MOVED IN (forecast in period, baseline outside period)
-    if (fInPeriod && !bInPeriod && !isManual && bDate) {
-      const bTotal = bDate.getFullYear() * 12 + bDate.getMonth();
-      const fTotal = fDate.getFullYear() * 12 + fDate.getMonth();
-      if (bTotal < fTotal)
-        addToBucket(B.movedInPrior, prod, fAmt, acct, fAmt, fcat);
+    const bDate = ES_wf_parseDate_(r[C.bMonth]);
+    const fDate = ES_wf_parseDate_(r[C.fMonth]);
+    const bAmt  = typeof r[C.bAmt] === "number" ? r[C.bAmt] : 0;
+    const fAmt  = typeof r[C.fAmt] === "number" ? r[C.fAmt] : 0;
+
+    // Skip pure zero-placeholder rows (bAmt=0, fAmt=0)
+    if (bAmt === 0 && fAmt === 0) continue;
+
+    const bInPeriod = bDate && periodMonths.some(
+      pm => pm.year === bDate.getFullYear() && pm.month === bDate.getMonth());
+    const fInPeriod = fDate && periodMonths.some(
+      pm => pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
+
+    const isManual   = /manual\s*add/i.test(src);
+    const isLostLogo = /lost\s*(account|logo)/i.test(fcat);
+    const isOffCycle = !isLostLogo && /active\s+client.*no\s+rev|no\s+rev.*this\s+term/i.test(fcat);
+    const isNotExp   = /^not\s+expected/i.test(fcat) && !isLostLogo && !isOffCycle;
+
+    // ── FORECAST bucket (all rows with forecast in period) ──
+    if (fInPeriod) addTo(B.forecast, prod, fAmt, acct, note);
+
+    // ── MANUAL ADDS (source = Manual Add, or bAmt=0 with forecast) ──
+    if (fInPeriod && (isManual || (bAmt === 0 && !bDate))) {
+      addTo(B.manualAdds, prod, fAmt, acct, note);
+      continue;
+    }
+
+    // ── BASELINE rows (baseline month falls in selected period) ──
+    if (bInPeriod) {
+      addTo(B.baseline, prod, bAmt, acct, note);
+
+      if (isLostLogo) {
+        addTo(B.lostLogo, prod, bAmt, acct, note);
+      } else if (isOffCycle) {
+        addTo(B.offCycle, prod, bAmt, acct, note);
+      } else if (!fInPeriod && fDate && !isNotExp) {
+        // MOVED OUT: forecast is in a different period
+        const bSer = bDate.getFullYear() * 12 + bDate.getMonth();
+        const fSer = fDate.getFullYear() * 12 + fDate.getMonth();
+        const toLabel = ES_wf_dateLabel_(fDate);
+        if (fSer < bSer)
+          addTo(B.movedOutEarlier, prod, bAmt, acct, "→ " + toLabel);
+        else
+          addTo(B.movedOutLater,   prod, bAmt, acct, "→ " + toLabel);
+      }
+    }
+
+    // ── MOVED IN: forecast in period, baseline in a different period ──
+    if (fInPeriod && !bInPeriod && bDate && !isLostLogo && !isOffCycle && !isNotExp && !isManual) {
+      const bSer = bDate.getFullYear() * 12 + bDate.getMonth();
+      const fSer = fDate.getFullYear() * 12 + fDate.getMonth();
+      const fromLabel = ES_wf_dateLabel_(bDate);
+      if (bSer < fSer)
+        addTo(B.movedInPrior, prod, fAmt, acct, "← " + fromLabel);
       else
-        addToBucket(B.movedInNext,  prod, fAmt, acct, fAmt, fcat);
+        addTo(B.movedInNext,  prod, fAmt, acct, "← " + fromLabel);
     }
   }
 
-  // ── Variance = Forecast − (Baseline − LostLogo − MovedOutEarlier − MovedOutLater
-  //                          + MovedInPrior + MovedInNext − OffCycle + ManualAdds) ──
-  function calcVar(key) {
-    return B.forecast[key] - (
-      B.baseline[key] - B.lostLogo[key]
-      - B.movedOutEarlier[key] - B.movedOutLater[key]
-      + B.movedInPrior[key]   + B.movedInNext[key]
-      - B.offCycle[key]       + B.manualAdds[key]
+  // ── Read Manual_Forecast_AddOns for any pending / not-yet-synced adds ──
+  const manSh = ss.getSheetByName(ES_WF_MAN);
+  if (manSh && manSh.getLastRow() > 1) {
+    const mHdr = manSh.getRange(1, 1, 1, manSh.getLastColumn()).getValues()[0];
+    const mData = manSh.getRange(2, 1, manSh.getLastRow() - 1, manSh.getLastColumn()).getValues();
+    const mIdx = {};
+    mHdr.forEach((h, i) => { if (h) mIdx[String(h).trim()] = i; });
+    const inclCol = mIdx["Include in Forecast"] !== undefined ? mIdx["Include in Forecast"] : -1;
+    const fmCol   = mIdx["Forecast Month"]   !== undefined ? mIdx["Forecast Month"]   : -1;
+    const faCol   = mIdx["Forecast Amount"]  !== undefined ? mIdx["Forecast Amount"]  : -1;
+    const pCol    = mIdx["Product Group"]    !== undefined ? mIdx["Product Group"]    : -1;
+    const aCol    = mIdx["Account Name"]     !== undefined ? mIdx["Account Name"]     : -1;
+    const rCol    = mIdx["Add-On Reason"]    !== undefined ? mIdx["Add-On Reason"]    : -1;
+    const subCol  = mIdx["Submitted At"]     !== undefined ? mIdx["Submitted At"]     : -1;
+    for (const r of mData) {
+      if (inclCol < 0 || r[inclCol] !== true) continue;
+      // Skip if already submitted to Working (Submitted At is set)
+      if (subCol >= 0 && r[subCol]) continue;
+      const fDate = ES_wf_parseDate_(fmCol >= 0 ? r[fmCol] : null);
+      if (!fDate) continue;
+      const fInPeriod = periodMonths.some(
+        pm => pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
+      if (!fInPeriod) continue;
+      const prod = ES_wf_normProd_(pCol >= 0 ? r[pCol] : "");
+      if (prod === "Unknown") continue;
+      if (prodFilter && !prodFilter.includes(prod.toLowerCase())) continue;
+      const fAmt = typeof r[faCol] === "number" ? r[faCol] : 0;
+      if (fAmt === 0) continue;
+      const acct = aCol >= 0 ? String(r[aCol] || "").trim() : "Manual Add";
+      const reason = rCol >= 0 ? String(r[rCol] || "").trim() : "";
+      addTo(B.manualAdds, prod, fAmt, acct, reason || "Pending manual add");
+    }
+  }
+
+  // ── Variance = Forecast − (Baseline − LostLogo − OffCycle
+  //              − MovedOutEarlier − MovedOutLater
+  //              + MovedInPrior + MovedInNext + ManualAdds) ──
+  function calcVar(k) {
+    return B.forecast[k] - (
+      B.baseline[k]
+      - B.lostLogo[k]       - B.offCycle[k]
+      - B.movedOutEarlier[k]- B.movedOutLater[k]
+      + B.movedInPrior[k]   + B.movedInNext[k]
+      + B.manualAdds[k]
     );
   }
   const variance = {
     total: calcVar("total"), n: calcVar("n"), m: calcVar("m"),
-    ih:    calcVar("ih"),    ah: calcVar("ah"),
+    ih: calcVar("ih"), ah: calcVar("ah"),
   };
 
-  // ── Period labels ─────────────────────────────────────────
-  const mLabel     = ES_wf_periodLabel_(periodMonths);
-  const priorLabel = ES_wf_adjacentLabel_(periodMonths, -1);
-  const nextLabel  = ES_wf_adjacentLabel_(periodMonths,  1);
-
-  // ── Build waterfall rows  [Cat, Total, Nursing, Med, iHuman, AH, Context] ──
+  // ── Build waterfall rows ───────────────────────────────────
   const AMT_FMT = "$#,##0;($#,##0)";
+  const pLabel = ES_wf_periodLabel_(periodMonths);
+
   function mkRow(label, bkt, sign, ctx) {
-    const s = sign;
-    return [label, s*bkt.total, s*bkt.n, s*bkt.m, s*bkt.ih, s*bkt.ah, ctx];
+    return [label, sign*bkt.total, sign*bkt.n, sign*bkt.m, sign*bkt.ih, sign*bkt.ah, ctx];
   }
 
   const wfRows = [];
-  wfRows.push(mkRow(`${mLabel} Baseline`,   B.baseline,  1,  "Starting Amount"));
+  wfRows.push(mkRow(`${pLabel} Baseline`,               B.baseline,        1,  "Starting Amount"));
   if (Math.abs(B.lostLogo.total)        > 0.5)
-    wfRows.push(mkRow(`${mLabel} Lost Logo`,                 B.lostLogo,        -1, "Accounts with no expected renewal"));
+    wfRows.push(mkRow("Lost Logo",                       B.lostLogo,        -1, "No expected renewal"));
   if (Math.abs(B.movedOutEarlier.total) > 0.5)
-    wfRows.push(mkRow(`Moved to ${priorLabel} (Out)`,        B.movedOutEarlier, -1, "Booked Early"));
+    wfRows.push(mkRow("Moved Out (to Earlier Period)",   B.movedOutEarlier, -1, "Captured / pulled into prior period"));
   if (Math.abs(B.movedOutLater.total)   > 0.5)
-    wfRows.push(mkRow(`Moved to ${nextLabel} (Out)`,         B.movedOutLater,   -1, "Pushed forward"));
+    wfRows.push(mkRow("Moved Out (to Later Period)",     B.movedOutLater,   -1, "Pushed to future period"));
   if (Math.abs(B.movedInPrior.total)    > 0.5)
-    wfRows.push(mkRow(`From ${priorLabel} (In)`,             B.movedInPrior,     1, `${priorLabel} Trailing`));
+    wfRows.push(mkRow("Moved In (from Earlier Period)",  B.movedInPrior,     1, "Trailing from earlier period"));
   if (Math.abs(B.movedInNext.total)     > 0.5)
-    wfRows.push(mkRow(`From ${nextLabel} (In)`,              B.movedInNext,      1, `Pulled forward from ${nextLabel}`));
+    wfRows.push(mkRow("Moved In (from Later Period)",    B.movedInNext,      1, "Pulled forward from later period"));
   if (Math.abs(B.offCycle.total)        > 0.5)
-    wfRows.push(mkRow(`${mLabel} Off-Cycle / Zeroed`,        B.offCycle,        -1, "Clients dropped to $0 (Risk/Downsell)"));
+    wfRows.push(mkRow("Off-Cycle / No Rev This Term",    B.offCycle,        -1, "Active clients with no rev this period"));
   if (Math.abs(B.manualAdds.total)      > 0.5)
-    wfRows.push(mkRow("Manual Adds",                         B.manualAdds,       1, "Added to the forecast, not in the baseline"));
+    wfRows.push(mkRow("Manual Adds",                     B.manualAdds,       1, "Added to forecast, not in baseline"));
   if (Math.abs(variance.total)          > 0.5)
     wfRows.push([
       "Variance / Other",
       variance.total, variance.n, variance.m, variance.ih, variance.ah,
-      "Upsell / Price lift to close gap"
+      "Amount changes, upsells, rounding"
     ]);
-  wfRows.push(mkRow(`${mLabel} Forecast`,  B.forecast,  1,  "Ending Amount"));
+  wfRows.push(mkRow(`${pLabel} Forecast`,               B.forecast,         1,  "Ending Amount"));
 
   // ── Write waterfall table ─────────────────────────────────
   sh.getRange(6, 2, wfRows.length, 7).setValues(wfRows);
-  sh.getRange(6, 3, wfRows.length, 5).setNumberFormat(AMT_FMT);  // C-G
-  sh.getRange(6, 2, wfRows.length, 1).setFontWeight("bold");
+  sh.getRange(6, 3, wfRows.length, 5).setNumberFormat(AMT_FMT);
 
   wfRows.forEach((row, i) => {
     const r = 6 + i;
     const isEnd = i === 0 || i === wfRows.length - 1;
+    const gr = sh.getRange(r, 2, 1, 7);
     if (isEnd) {
-      sh.getRange(r, 2, 1, 7).setBackground(ES.THEME.SECTION).setFontWeight("bold").setFontSize(11);
+      gr.setBackground(ES.THEME.SECTION).setFontWeight("bold").setFontSize(11);
     } else if (row[1] < 0) {
-      sh.getRange(r, 2, 1, 7).setBackground("#fff0f0");
+      gr.setBackground("#fff0f0");
     } else if (row[1] > 0) {
-      sh.getRange(r, 2, 1, 7).setBackground("#f0fff4");
+      gr.setBackground("#f0fff4");
     }
+    sh.getRange(r, 2).setFontWeight("bold");
   });
 
-  // ── Drilldown ─────────────────────────────────────────────
+  // ── Account Drilldown ─────────────────────────────────────
   const drillDefs = [
-    { label: "Lost Logo",              bkt: B.lostLogo        },
-    { label: "Moved Out (Earlier)",    bkt: B.movedOutEarlier },
-    { label: "Moved Out (Later)",      bkt: B.movedOutLater   },
-    { label: "Moved In (From Prior)",  bkt: B.movedInPrior    },
-    { label: "Moved In (From Next)",   bkt: B.movedInNext     },
-    { label: "Off-Cycle / Zeroed",     bkt: B.offCycle        },
-    { label: "Manual Adds",            bkt: B.manualAdds      },
+    { label: "Lost Logo",                bkt: B.lostLogo        },
+    { label: "Moved Out (Earlier)",      bkt: B.movedOutEarlier },
+    { label: "Moved Out (Later)",        bkt: B.movedOutLater   },
+    { label: "Moved In (from Earlier)",  bkt: B.movedInPrior    },
+    { label: "Moved In (from Later)",    bkt: B.movedInNext     },
+    { label: "Off-Cycle / No Rev",       bkt: B.offCycle        },
+    { label: "Manual Adds",              bkt: B.manualAdds      },
   ];
 
   let dr = 6 + wfRows.length + 2;
@@ -542,17 +611,14 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
 
   for (const dd of drillDefs) {
     if (!dd.bkt.accts.length) continue;
-    // Section header
     sh.getRange(dr, 2, 1, 7).merge()
-      .setValue(`${dd.label}  (${dd.bkt.accts.length} accounts  ·  $${Math.round(Math.abs(dd.bkt.total)).toLocaleString()})`)
+      .setValue(`${dd.label}  (${dd.bkt.accts.length} account(s)  ·  $${Math.round(Math.abs(dd.bkt.total)).toLocaleString()})`)
       .setBackground(ES.THEME.SECTION).setFontWeight("bold");
     dr++;
-    // Column micro-headers
     sh.getRange(dr, 2, 1, 4)
-      .setValues([["Account Name", "Product", "Amount ($)", "Notes"]])
+      .setValues([["Account Name", "Product", "Amount ($)", "Notes / Period"]])
       .setFontWeight("bold").setFontColor(ES.THEME.MUTED).setFontSize(9);
     dr++;
-    // Rows sorted by |amt| desc
     const sorted = dd.bkt.accts.slice().sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
     for (const a of sorted) {
       sh.getRange(dr, 2).setValue(a.acct);
@@ -561,76 +627,79 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
       if (a.note) sh.getRange(dr, 5).setValue(a.note).setFontColor(ES.THEME.MUTED).setFontSize(9);
       dr++;
     }
-    dr++; // spacer
+    dr++;
+  }
+
+  // ── CSM Accountability Summary ────────────────────────────
+  dr++;
+  sh.getRange(dr, 2, 1, 7).merge()
+    .setValue("CSM ACCOUNTABILITY SUMMARY  ·  forecast changes by rep")
+    .setBackground(ES.THEME.NAVY).setFontColor("#fff").setFontWeight("bold");
+  dr++;
+
+  // Group rows by CSM to show per-rep delta
+  const csmMap = {};
+  for (const r of data) {
+    const csm  = String(r[C.csm]     || "(Unassigned)").trim();
+    const prod = ES_wf_normProd_(String(r[C.product] || "").trim());
+    if (prod === "Unknown") continue;
+    const bDate = ES_wf_parseDate_(r[C.bMonth]);
+    const fDate = ES_wf_parseDate_(r[C.fMonth]);
+    const bAmt  = typeof r[C.bAmt] === "number" ? r[C.bAmt] : 0;
+    const fAmt  = typeof r[C.fAmt] === "number" ? r[C.fAmt] : 0;
+    const fcat  = String(r[C.fCat]  || "").trim();
+    const out   = String(r[C.outreach] || "").trim();
+    if (bAmt === 0 && fAmt === 0) continue;
+
+    const bInPeriod = bDate && periodMonths.some(
+      pm => pm.year === bDate.getFullYear() && pm.month === bDate.getMonth());
+    const fInPeriod = fDate && periodMonths.some(
+      pm => pm.year === fDate.getFullYear() && pm.month === fDate.getMonth());
+    if (!bInPeriod && !fInPeriod) continue;
+
+    if (!csmMap[csm]) csmMap[csm] = { baseline: 0, forecast: 0, notExp: 0, noStatus: 0, moves: 0 };
+    const e = csmMap[csm];
+    if (bInPeriod) e.baseline += bAmt;
+    if (fInPeriod) e.forecast += fAmt;
+    if (/^not\s+expected/i.test(fcat)) e.notExp++;
+    if (!out && fInPeriod && fAmt > 0) e.noStatus++;
+    if (bDate && fDate && bDate.getTime() !== fDate.getTime()) e.moves++;
+  }
+
+  const csmHdrs = [["CSM", "Baseline ($)", "Forecast ($)", "Delta ($)", "Not Expected", "Missing Status", "Month Moves"]];
+  sh.getRange(dr, 2, 1, 7).setValues(csmHdrs)
+    .setFontWeight("bold").setBackground(ES.THEME.SECTION).setFontColor(ES.THEME.MUTED).setFontSize(9);
+  dr++;
+
+  const csmEntries = Object.entries(csmMap).sort((a, b) => b[1].baseline - a[1].baseline);
+  for (const [name, e] of csmEntries) {
+    const delta = e.forecast - e.baseline;
+    sh.getRange(dr, 2).setValue(name);
+    sh.getRange(dr, 3).setValue(e.baseline).setNumberFormat(AMT_FMT);
+    sh.getRange(dr, 4).setValue(e.forecast).setNumberFormat(AMT_FMT);
+    sh.getRange(dr, 5).setValue(delta).setNumberFormat(AMT_FMT);
+    if (delta < 0) sh.getRange(dr, 5).setFontColor("red");
+    sh.getRange(dr, 6).setValue(e.notExp);
+    sh.getRange(dr, 7).setValue(e.noStatus > 0 ? `⚠ ${e.noStatus}` : "");
+    if (e.noStatus > 0) sh.getRange(dr, 7).setFontColor("#c05000");
+    sh.getRange(dr, 8).setValue(e.moves);
+    dr++;
   }
 }
 
 /* ==================== WATERFALL HELPERS ==================== */
 
-/**
- * Scan the header row for known flag column patterns.
- * Returns { lostLogo: {monthIdx→colIdx}, offCycle: {…}, movement: {"from->to"→colIdx} }
- */
-function ES_wf_detectFlags_(header) {
-  const PATS = [
-    /\bjan(?:uary)?\b/i,         // 0
-    /\bfeb(?:ruary)?\b/i,        // 1
-    /\bmar(?:ch)?\b/i,           // 2
-    /\bapr(?:il)?\b/i,           // 3
-    /\bmay\b/i,                  // 4
-    /\bjun(?:e)?\b/i,            // 5
-    /\bjul(?:y)?\b/i,            // 6
-    /\baug(?:ust)?\b/i,          // 7
-    /\bsep(?:t(?:ember)?)?\b/i,  // 8
-    /\boct(?:ober)?\b/i,         // 9
-    /\bnov(?:ember)?\b/i,        // 10
-    /\bdec(?:ember)?\b/i,        // 11
-  ];
-
-  function monthsInStr(s) {
-    const found = [];
-    for (let i = 0; i < PATS.length; i++) {
-      const m = PATS[i].exec(s);
-      if (m) found.push({ idx: i, pos: m.index });
-    }
-    return found.sort((a, b) => a.pos - b.pos);
-  }
-
-  const result = { lostLogo: {}, offCycle: {}, movement: {} };
-
-  header.forEach((h, ci) => {
-    const s = String(h || "").trim();
-    if (!s) return;
-
-    if (/lost\s*logo/i.test(s)) {
-      const ms = monthsInStr(s);
-      if (ms.length) result.lostLogo[ms[0].idx] = ci;
-
-    } else if (/current\s+client/i.test(s) && /not\s+expected/i.test(s)) {
-      const ms = monthsInStr(s);
-      if (ms.length) result.offCycle[ms[0].idx] = ci;
-
-    } else if (/\bmoved\b/i.test(s)) {
-      const ms = monthsInStr(s);
-      if (ms.length === 2) {
-        let fromIdx, toIdx;
-        if (/moved\s+from\b/i.test(s)) {
-          // "Moved from A to B" → from=first, to=second
-          fromIdx = ms[0].idx; toIdx = ms[1].idx;
-        } else {
-          // "Moved To B from A" / "Moved to B from A" → to=first, from=second
-          toIdx = ms[0].idx; fromIdx = ms[1].idx;
-        }
-        result.movement[`${fromIdx}->${toIdx}`] = ci;
-      }
-    }
-  });
-
-  return result;
-}
-
-/** Parse "Jan-26" or "Q1 2026" into [{year, month(0-based)}] */
+/** Parse "Jan-26", "Q1 2026", or "Full Year 2026" into [{year, month(0-based)}] */
 function ES_wf_periodMonths_(period) {
+  if (period === "Full Year 2026") {
+    return Array.from({length: 13}, (_, i) => {
+      // Dec-25 (month 11 of 2025) through Dec-26 (month 11 of 2026)
+      // Full year = all months that can appear in FY2026 baseline or forecast
+      const y = i === 0 ? 2025 : 2026;
+      const m = i === 0 ? 11 : i - 1;
+      return { year: y, month: m };
+    });
+  }
   const qMatch = period.match(/^Q([1-4])\s+(\d{4})$/);
   if (qMatch) {
     const q = parseInt(qMatch[1], 10);
@@ -677,76 +746,33 @@ function ES_wf_normProd_(raw) {
   return "Unknown";
 }
 
-/** "Jan-26" → "Jan",  "Q1 2026" → "Q1" */
+/** "Jan-26" → "Jan",  "Q1 2026" → "Q1",  Full Year → "FY2026" */
 function ES_wf_periodLabel_(periodMonths) {
   const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   if (periodMonths.length === 1) return ABBR[periodMonths[0].month];
+  if (periodMonths.length >= 12) return "FY2026";
   return `Q${Math.floor(periodMonths[0].month / 3) + 1}`;
 }
 
-/**
- * Build a lookup from CSM_Working_Forecast boolean flag columns.
- * Returns { "AccountFullID|yyyyMM" → { isLostLogo, isOffCycle } }
- * Used to augment _Dashboard_Data rows with explicit CSM classifications.
- */
-function ES_wf_buildFlagLookup_(ss) {
-  const wfSh = ss.getSheetByName("CSM_Working_Forecast");
-  if (!wfSh || wfSh.getLastRow() < 2) return {};
-
-  const lastCol   = wfSh.getLastColumn();
-  const rawHeader = wfSh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  const data      = wfSh.getRange(2, 1, wfSh.getLastRow() - 1, lastCol).getValues();
-
-  const hmap = {};
-  rawHeader.forEach((h, i) => { hmap[String(h || "").trim().toLowerCase()] = i; });
-  function col() {
-    for (let i = 0; i < arguments.length; i++) {
-      const k = String(arguments[i] || "").trim().toLowerCase();
-      if (hmap[k] !== undefined) return hmap[k];
-    }
-    return -1;
-  }
-
-  const ciAcct = col("account full id","salesforce account id (full id)","full id","sfid");
-  const ciBM   = col("baseline month");
-  const flagMap = ES_wf_detectFlags_(rawHeader);
-
-  const lookup = {};
-  for (const r of data) {
-    const acctId = ciAcct >= 0 ? String(r[ciAcct] || "").trim() : "";
-    if (!acctId) continue;
-    const bDate = ES_wf_parseDate_(ciBM >= 0 ? r[ciBM] : null);
-    if (!bDate) continue;
-
-    const key  = `${acctId}|${bDate.getFullYear() * 100 + bDate.getMonth()}`;
-    const bMon = bDate.getMonth();
-    const llCol = flagMap.lostLogo[bMon];
-    const ocCol = flagMap.offCycle[bMon];
-
-    const existing = lookup[key] || {};
-    if (llCol !== undefined) existing.isLostLogo = existing.isLostLogo || (r[llCol] === true);
-    if (ocCol !== undefined) existing.isOffCycle  = existing.isOffCycle  || (r[ocCol]  === true);
-    lookup[key] = existing;
-  }
-  return lookup;
+/** Format a Date as "Jan-26" */
+function ES_wf_dateLabel_(d) {
+  const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const yr = String(d.getFullYear()).slice(-2);
+  return ABBR[d.getMonth()] + "-" + yr;
 }
 
-/** Label for the period immediately before (-1) or after (+1) the given period */
-function ES_wf_adjacentLabel_(periodMonths, dir) {
-  const ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  if (periodMonths.length === 1) {
-    let y = periodMonths[0].year, m = periodMonths[0].month + dir;
-    if (m < 0)  { m = 11; y--; }
-    if (m > 11) { m = 0;  y++; }
-    return ABBR[m];
+/** Get unique non-blank values from a 0-based column index in a sheet */
+function ES_wf_getUnique_(ss, sheetName, colIdx, sorted) {
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const vals = sh.getRange(2, colIdx + 1, sh.getLastRow() - 1, 1).getValues().flat();
+  const seen = new Set();
+  const result = [];
+  for (const v of vals) {
+    const s = String(v || "").trim();
+    if (s && !seen.has(s)) { seen.add(s); result.push(s); }
   }
-  const q = Math.floor(periodMonths[0].month / 3) + 1;
-  const y = periodMonths[0].year;
-  if (dir < 0) {
-    return q === 1 ? `Q4 ${y-1}` : `Q${q-1} ${y}`;
-  } else {
-    return q === 4 ? `Q1 ${y+1}` : `Q${q+1} ${y}`;
-  }
+  return sorted ? result.sort() : result;
 }
 
 /* ==================== SHARED HELPERS ==================== */
