@@ -300,23 +300,37 @@ function ES_buildWaterfallTab_(ss) {
     "Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26"];
   ES_listVal_(sh.getRange("C2"), periods);
 
-  // CSM (multi-select)
+  // CSM (multi-select) — write list to hidden col P to avoid the 500-item requireValueInList limit
   sh.getRange("E2").setValue("CSM:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("F2").setValue("All");
   const csmList = ES_wf_getUnique_(ss, ES_WF_SRC, ES_WF_C.csm).sort();
-  ES_listVal_(sh.getRange("F2"), ["All", ...csmList]);
+  const csmItems = ["All", ...csmList];
+  sh.getRange(1, 16, csmItems.length, 1).setValues(csmItems.map(v => [v]));
+  sh.getRange("F2").setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInRange(sh.getRange(1, 16, csmItems.length, 1), true)
+      .setAllowInvalid(true).build()
+  );
+  sh.hideColumns(16);
 
-  // Product (multi-select)
+  // Product (multi-select) — small list, requireValueInList is fine
   sh.getRange("H2").setValue("Product:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("I2").setValue("All");
   ES_listVal_(sh.getRange("I2"), ["All", "Nursing", "Med", "iHuman", "Allied Health"]);
 
-  // Forecast Category (multi-select)
+  // Forecast Category (multi-select) — write list to hidden col R
   sh.getRange("K2").setValue("Fcst Cat:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
   sh.getRange("L2").setValue("All");
   const catList = ES_wf_getUnique_(ss, ES_WF_SRC, ES_WF_C.fCat, true)
     .filter(v => v && v.trim());
-  ES_listVal_(sh.getRange("L2"), ["All", "Standard (No Category)", ...catList]);
+  const catItems = ["All", "Standard (No Category)", ...catList];
+  sh.getRange(1, 18, catItems.length, 1).setValues(catItems.map(v => [v]));
+  sh.getRange("L2").setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInRange(sh.getRange(1, 18, catItems.length, 1), true)
+      .setAllowInvalid(true).build()
+  );
+  sh.hideColumns(18);
 
   // ── Row 3: instructions ───────────────────────────────────
   sh.setRowHeight(3, 20);
