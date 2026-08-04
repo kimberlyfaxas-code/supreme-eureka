@@ -293,7 +293,7 @@ function ES_buildWaterfallTab_(ss) {
 
   // Period (single-select)
   sh.getRange("B2").setValue("Period:").setFontColor(ES.THEME.MUTED).setFontWeight("bold");
-  sh.getRange("C2").setValue("Jan-26");
+  sh.getRange("C2").setNumberFormat("@").setValue("Jan-26");
   const periods = ["Full Year 2026", ...ES.QUARTERS,
     "Dec-25",
     "Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26",
@@ -370,7 +370,7 @@ function ES_computeAndWriteWaterfall_(ss, sh) {
     return;
   }
 
-  const period   = String(sh.getRange("C2").getValue() || "").trim();
+  const period   = sh.getRange("C2").getDisplayValue().trim();
   const csmRaw   = String(sh.getRange("F2").getValue() || "All").trim();
   const prodRaw  = String(sh.getRange("I2").getValue() || "All").trim();
   const catRaw   = String(sh.getRange("L2").getValue() || "All").trim();
