@@ -420,13 +420,15 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
-  // Line chart (Month, Total Forecast, Baseline)
+  // Line chart: Total Forecast vs Baseline (cols 1-3)
   FD_upsertLineChart_(
     sh,
     sh.getRange(startRow, 1, 13, 3),
-    11, 8,
+    11, 9,
     "Forecast vs Baseline (Monthly)"
   );
+  // Stacked bar: On-Time / Late Bookings / Early Bookings (cols 1, 4-6)
+  FD_addMovementChart_(sh, startRow, 13, 24, 9, "Booking Movement Breakdown");
 }
 /*********************************
  * CSM tables + line chart
@@ -495,12 +497,15 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
+  // Line chart: Total Forecast vs Baseline (cols 1-3)
   FD_upsertLineChart_(
     sh,
     sh.getRange(startRow, 1, 13, 3),
-    11, 8,
+    11, 9,
     "CSM Monthly: Forecast vs Baseline"
   );
+  // Stacked bar: On-Time / Late Bookings / Early Bookings (cols 1, 4-6)
+  FD_addMovementChart_(sh, startRow, 13, 24, 9, "CSM Booking Movement Breakdown");
 }
 /*********************************
  * Waterfall math + stacked chart
@@ -840,6 +845,28 @@ function FD_upsertLineChart_(sh, range, posRow, posCol, title) {
     .setOption("chartArea", { left: 60, top: 40, width: "85%", height: "70%" })
     .setOption("hAxis", { slantedText: true, slantedTextAngle: 30 })
     .setOption("vAxis", { format: "$#,###" });
+  sh.insertChart(builder.build());
+}
+function FD_addMovementChart_(sh, startRow, numRows, posRow, posCol, title) {
+  // Stacked column: Month labels (col 1) + On-Time (col 4), Late Bookings (col 5), Early Bookings (col 6)
+  const builder = sh.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(sh.getRange(startRow, 1, numRows, 1))
+    .addRange(sh.getRange(startRow, 4, numRows, 3))
+    .setNumHeaders(1)
+    .setPosition(posRow, posCol, 0, 0)
+    .setOption("title", title || "")
+    .setOption("isStacked", true)
+    .setOption("legend", { position: "top" })
+    .setOption("backgroundColor", "#ffffff")
+    .setOption("chartArea", { left: 70, top: 30, width: "85%", height: "70%" })
+    .setOption("hAxis", { slantedText: true, slantedTextAngle: 30, textStyle: { fontSize: 10 } })
+    .setOption("vAxis", { format: "$#,###", textStyle: { fontSize: 10 } })
+    .setOption("series", {
+      0: { color: "#1a7340" },
+      1: { color: "#e07b39" },
+      2: { color: "#3b7dd8" }
+    });
   sh.insertChart(builder.build());
 }
 /*********************************
