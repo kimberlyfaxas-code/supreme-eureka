@@ -83,7 +83,6 @@ function ES_buildSummaryTab_(ss) {
     .setBackground(ES.THEME.NAVY).setFontColor("#fff")
     .setFontSize(15).setFontWeight("bold")
     .setHorizontalAlignment("left").setVerticalAlignment("middle");
-  sh.getRange("A1").setIndent(1);
 
   // ── Row 2: Filters ────────────────────────────────────────
   sh.setRowHeight(2, 30);
@@ -287,7 +286,6 @@ function ES_buildWaterfallTab_(ss) {
     .setBackground(ES.THEME.NAVY).setFontColor("#fff")
     .setFontSize(15).setFontWeight("bold")
     .setHorizontalAlignment("left").setVerticalAlignment("middle");
-  sh.getRange("A1").setIndent(1);
 
   // ── Row 2: Period | CSM | Product | Forecast Category ────
   sh.setRowHeight(2, 30);
