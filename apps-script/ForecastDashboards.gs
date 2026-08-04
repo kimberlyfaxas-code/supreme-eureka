@@ -371,7 +371,7 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
   sh.getRange("H6").setFormula("=IF(D6=0,0,B6/D6)").setNumberFormat("0.0%");
   // Monthly table
   const startRow = 11;
-  sh.getRange(startRow, 1, 1, 7).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Variance","Retention %"]])
+  sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
   const months = FD_monthOrderFY26Dates_();
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
@@ -381,17 +381,19 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const mCell = `A${r}`;
     const monthMaskOnTime   = `((${mask})*N(${BM}=${mCell})*N(${FM}=${mCell}))>0`;
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
+    const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
     const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   // Quarterly table
   const qRow = 25;
-  sh.getRange(qRow, 1, 1, 7).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Variance","Retention %"]])
+  sh.getRange(qRow, 1, 1, 8).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
   const quarters = [
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
@@ -404,15 +406,18 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const r = qRow + 1 + i;
     const dateConsts  = `{${quarters[i][1].map(d => FD_dateConst_(d)).join(",")}}`;
     const qFirstDate  = FD_dateConst_(quarters[i][1][0]);
+    const qLastDate   = FD_dateConst_(quarters[i][1][2]);
     const qMaskOnTime   = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0))))>0`;
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
+    const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
     const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
   // Line chart (Month, Total Forecast, Baseline)
@@ -442,7 +447,7 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
   sh.getRange("H6").setFormula("=IF(D6=0,0,B6/D6)").setNumberFormat("0.0%");
   const startRow = 11;
-  sh.getRange(startRow, 1, 1, 7).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Variance","Retention %"]])
+  sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
   const months = FD_monthOrderFY26Dates_();
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
@@ -452,16 +457,18 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const mCell = `A${r}`;
     const monthMaskOnTime   = `((${mask})*N(${BM}=${mCell})*N(${FM}=${mCell}))>0`;
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
+    const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
     const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   const qRow = 25;
-  sh.getRange(qRow, 1, 1, 7).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Variance","Retention %"]])
+  sh.getRange(qRow, 1, 1, 8).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
   const quarters = [
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
@@ -474,15 +481,18 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const r = qRow + 1 + i;
     const dateConsts  = `{${quarters[i][1].map(d => FD_dateConst_(d)).join(",")}}`;
     const qFirstDate  = FD_dateConst_(quarters[i][1][0]);
+    const qLastDate   = FD_dateConst_(quarters[i][1][2]);
     const qMaskOnTime   = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0))))>0`;
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
+    const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
     const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
   FD_upsertLineChart_(
