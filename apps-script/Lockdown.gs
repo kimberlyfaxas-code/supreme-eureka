@@ -191,7 +191,7 @@ function LD_headerMap_(sh) {
   const map = {};
   headers.forEach((h, i) => {
     const key = String(h || "").trim();
-    if (key) map[key] = i + 1;
+    if (key && !map[key]) map[key] = i + 1; // first occurrence wins — ignore duplicate headers
   });
   return map;
 }

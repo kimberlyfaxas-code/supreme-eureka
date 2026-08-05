@@ -339,7 +339,10 @@ function MA_lookupOwnership_(ownership, acctIdNorm) {
 function MA_headerMap_(sh) {
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   const map = {};
-  headers.forEach((h, i) => map[String(h || "").trim()] = i + 1);
+  headers.forEach((h, i) => {
+    const k = String(h || "").trim();
+    if (k && !map[k]) map[k] = i + 1; // first occurrence wins — ignore duplicate headers
+  });
   return map;
 }
 function MA_findAnyHeaderCol_(headerMap, candidates) {

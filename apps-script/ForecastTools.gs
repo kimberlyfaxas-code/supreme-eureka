@@ -225,7 +225,7 @@ function FT_headerMap_(sheet) {
   const map = {};
   row.forEach((h, i) => {
     const key = String(h || "").trim().toLowerCase();
-    if (key) map[key] = i + 1;
+    if (key && !map[key]) map[key] = i + 1; // first occurrence wins — ignore duplicate headers
   });
   return map;
 }

@@ -352,7 +352,7 @@ function FDDATA_headerMap_(sh) {
   const map = {};
   h.forEach((x, i) => {
     const k = String(x || "").trim().toLowerCase();
-    if (k) map[k] = i + 1;
+    if (k && !map[k]) map[k] = i + 1; // first occurrence wins — ignore duplicate headers
   });
   return map;
 }
