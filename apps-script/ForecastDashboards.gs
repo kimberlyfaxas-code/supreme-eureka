@@ -358,23 +358,35 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   const helperName = FD.HELPER_SHEET;
   const helper = ss.getSheetByName(helperName);
   if (!helper) throw new Error(`Missing helper sheet: ${helperName}`);
-// Numeric mask (0/1)
-const mask = FD_execMaskFormula_(helperName, sh);
-const maskB = `(${mask})>0`; // boolean version for FILTER()
-  // Dynamic helper column ranges
+  const mask = FD_execMaskFormula_(helperName, sh);
+  const maskB = `(${mask})>0`;
   const BM = FD_helperColRange_(helperName, helper, "Baseline Month",  `'${helperName}'!F2:F`);
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
   const BA = FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
   const FA = FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
-  // KPI formulas
-sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
-sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%");
-  // Monthly table
+  // KPI formulas — larger, bold
+  sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%").setFontSize(14).setFontWeight("bold");
+  // Column widths
+  sh.setColumnWidth(1, 80);
+  sh.setColumnWidth(2, 115);
+  sh.setColumnWidth(3, 125);
+  sh.setColumnWidth(4, 110);
+  sh.setColumnWidth(5, 110);
+  sh.setColumnWidth(6, 120);
+  sh.setColumnWidth(7, 110);
+  sh.setColumnWidth(8, 100);
+  // Monthly table — col order: Month | Baseline | On-Time | Late | Early | Total | Variance | Retention %
   const startRow = 11;
-  sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
+  sh.getRange(startRow, 1, 1, 8)
+    .setValues([["Month","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
+  // Movement column header colors
+  sh.getRange(startRow, 3).setBackground("#D1FAE5").setFontColor("#166534");
+  sh.getRange(startRow, 4).setBackground("#FEF3C7").setFontColor("#92400E");
+  sh.getRange(startRow, 5).setBackground("#DBEAFE").setFontColor("#1E40AF");
   const months = FD_monthOrderFY26Dates_();
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
   sh.getRange(startRow + 1, 1, months.length, 1).setNumberFormat("mmm-yy");
@@ -385,18 +397,26 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
     const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
     const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
-    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
+  // Movement column background tints
+  sh.getRange(startRow + 1, 3, months.length, 1).setBackground("#F0FDF4");
+  sh.getRange(startRow + 1, 4, months.length, 1).setBackground("#FFFBEB");
+  sh.getRange(startRow + 1, 5, months.length, 1).setBackground("#EFF6FF");
   // Quarterly table
   const qRow = 25;
-  sh.getRange(qRow, 1, 1, 8).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
+  sh.getRange(qRow, 1, 1, 8)
+    .setValues([["Quarter","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
+  sh.getRange(qRow, 3).setBackground("#D1FAE5").setFontColor("#166534");
+  sh.getRange(qRow, 4).setBackground("#FEF3C7").setFontColor("#92400E");
+  sh.getRange(qRow, 5).setBackground("#DBEAFE").setFontColor("#1E40AF");
   const quarters = [
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
     ["Q2 2026", [new Date(2026,3,1), new Date(2026,4,1), new Date(2026,5,1)]],
@@ -413,23 +433,47 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
     const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
     const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
-    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
+  sh.getRange(qRow + 1, 3, quarters.length, 1).setBackground("#F0FDF4");
+  sh.getRange(qRow + 1, 4, quarters.length, 1).setBackground("#FFFBEB");
+  sh.getRange(qRow + 1, 5, quarters.length, 1).setBackground("#EFF6FF");
+  // Conditional formatting — Retention % (goal = 95%) and Variance
+  const retMonthly   = sh.getRange(startRow + 1, 8, months.length, 1);
+  const retQuarterly = sh.getRange(qRow + 1, 8, quarters.length, 1);
+  const varMonthly   = sh.getRange(startRow + 1, 7, months.length, 1);
+  const varQuarterly = sh.getRange(qRow + 1, 7, quarters.length, 1);
+  sh.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThanOrEqualTo(0.95)
+      .setBackground("#DCFCE7").setFontColor("#166534")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberBetween(0.80, 0.9499)
+      .setBackground("#FEF9C3").setFontColor("#854D0E")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(0.80)
+      .setBackground("#FEE2E2").setFontColor("#991B1B")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThan(0)
+      .setFontColor("#166534")
+      .setRanges([varMonthly, varQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(0)
+      .setFontColor("#DC2626")
+      .setRanges([varMonthly, varQuarterly]).build()
+  ]);
+  // Remove any stale charts
+  sh.getCharts().forEach(c => sh.removeChart(c));
   SpreadsheetApp.flush();
-  // Line chart at col 9; movement chart side-by-side at col 15
-  FD_upsertLineChart_(
-    sh,
-    sh.getRange(startRow, 1, 13, 3),
-    11, 9,
-    "Forecast vs Baseline (Monthly)"
-  );
-  FD_addMovementChart_(sh, startRow, 13, 11, 15, "Booking Movement Breakdown");
 }
 /*********************************
  * CSM tables + line chart
@@ -450,8 +494,21 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
   sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%");
   const startRow = 11;
-  sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
+  sh.getRange(startRow, 1, 1, 8)
+    .setValues([["Month","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
+  sh.getRange(startRow, 3).setBackground("#D1FAE5").setFontColor("#166534");
+  sh.getRange(startRow, 4).setBackground("#FEF3C7").setFontColor("#92400E");
+  sh.getRange(startRow, 5).setBackground("#DBEAFE").setFontColor("#1E40AF");
+  // Column widths
+  sh.setColumnWidth(1, 80);
+  sh.setColumnWidth(2, 115);
+  sh.setColumnWidth(3, 125);
+  sh.setColumnWidth(4, 110);
+  sh.setColumnWidth(5, 110);
+  sh.setColumnWidth(6, 120);
+  sh.setColumnWidth(7, 110);
+  sh.setColumnWidth(8, 100);
   const months = FD_monthOrderFY26Dates_();
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
   sh.getRange(startRow + 1, 1, months.length, 1).setNumberFormat("mmm-yy");
@@ -462,17 +519,24 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
     const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
     const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
-    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
+  sh.getRange(startRow + 1, 3, months.length, 1).setBackground("#F0FDF4");
+  sh.getRange(startRow + 1, 4, months.length, 1).setBackground("#FFFBEB");
+  sh.getRange(startRow + 1, 5, months.length, 1).setBackground("#EFF6FF");
   const qRow = 25;
-  sh.getRange(qRow, 1, 1, 8).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
+  sh.getRange(qRow, 1, 1, 8)
+    .setValues([["Quarter","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
+  sh.getRange(qRow, 3).setBackground("#D1FAE5").setFontColor("#166534");
+  sh.getRange(qRow, 4).setBackground("#FEF3C7").setFontColor("#92400E");
+  sh.getRange(qRow, 5).setBackground("#DBEAFE").setFontColor("#1E40AF");
   const quarters = [
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
     ["Q2 2026", [new Date(2026,3,1), new Date(2026,4,1), new Date(2026,5,1)]],
@@ -489,23 +553,46 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
     const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
     const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
-    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
+    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
+  sh.getRange(qRow + 1, 3, quarters.length, 1).setBackground("#F0FDF4");
+  sh.getRange(qRow + 1, 4, quarters.length, 1).setBackground("#FFFBEB");
+  sh.getRange(qRow + 1, 5, quarters.length, 1).setBackground("#EFF6FF");
+  // Conditional formatting — Retention % (goal = 95%) and Variance
+  const retMonthly   = sh.getRange(startRow + 1, 8, months.length, 1);
+  const retQuarterly = sh.getRange(qRow + 1, 8, quarters.length, 1);
+  const varMonthly   = sh.getRange(startRow + 1, 7, months.length, 1);
+  const varQuarterly = sh.getRange(qRow + 1, 7, quarters.length, 1);
+  sh.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThanOrEqualTo(0.95)
+      .setBackground("#DCFCE7").setFontColor("#166534")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberBetween(0.80, 0.9499)
+      .setBackground("#FEF9C3").setFontColor("#854D0E")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(0.80)
+      .setBackground("#FEE2E2").setFontColor("#991B1B")
+      .setRanges([retMonthly, retQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberGreaterThan(0)
+      .setFontColor("#166534")
+      .setRanges([varMonthly, varQuarterly]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(0)
+      .setFontColor("#DC2626")
+      .setRanges([varMonthly, varQuarterly]).build()
+  ]);
+  sh.getCharts().forEach(c => sh.removeChart(c));
   SpreadsheetApp.flush();
-  // Line chart at col 9; movement chart side-by-side at col 15
-  FD_upsertLineChart_(
-    sh,
-    sh.getRange(startRow, 1, 13, 3),
-    11, 9,
-    "CSM Monthly: Forecast vs Baseline"
-  );
-  FD_addMovementChart_(sh, startRow, 13, 11, 15, "CSM Booking Movement Breakdown");
 }
 /*********************************
  * Waterfall math + stacked chart
