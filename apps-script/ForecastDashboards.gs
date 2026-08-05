@@ -370,7 +370,7 @@ const maskB = `(${mask})>0`; // boolean version for FILTER()
 sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
 sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("H6").setFormula("=IF(D6=0,0,B6/D6)").setNumberFormat("0.0%");
+  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%");
   // Monthly table
   const startRow = 11;
   sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
@@ -391,7 +391,7 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
   }
   // Quarterly table
   const qRow = 25;
@@ -419,18 +419,17 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
-  // Line chart: Total Forecast vs Baseline (cols 1-3)
+  // Line chart at col 9; movement chart side-by-side at col 15
   FD_upsertLineChart_(
     sh,
     sh.getRange(startRow, 1, 13, 3),
     11, 9,
     "Forecast vs Baseline (Monthly)"
   );
-  // Stacked bar: On-Time / Late Bookings / Early Bookings (cols 1, 4-6)
-  FD_addMovementChart_(sh, startRow, 13, 24, 9, "Booking Movement Breakdown");
+  FD_addMovementChart_(sh, startRow, 13, 11, 15, "Booking Movement Breakdown");
 }
 /*********************************
  * CSM tables + line chart
@@ -449,7 +448,7 @@ const maskB = `(${mask})>0`;
 sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
 sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("H6").setFormula("=IF(D6=0,0,B6/D6)").setNumberFormat("0.0%");
+  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%");
   const startRow = 11;
   sh.getRange(startRow, 1, 1, 8).setValues([["Month","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
@@ -469,7 +468,7 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
   }
   const qRow = 25;
   sh.getRange(qRow, 1, 1, 8).setValues([["Quarter","Total Forecast","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Variance","Retention %"]])
@@ -496,18 +495,17 @@ sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumb
     sh.getRange(r, 6).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 2).setFormula(`=D${r}+E${r}+F${r}`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 7).setFormula(`=B${r}-C${r}`).setNumberFormat("$#,##0;($#,##0)");
-    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,0,B${r}/C${r})`).setNumberFormat("0.0%");
+    sh.getRange(r, 8).setFormula(`=IF(C${r}=0,"",B${r}/C${r})`).setNumberFormat("0.0%");
   }
   SpreadsheetApp.flush();
-  // Line chart: Total Forecast vs Baseline (cols 1-3)
+  // Line chart at col 9; movement chart side-by-side at col 15
   FD_upsertLineChart_(
     sh,
     sh.getRange(startRow, 1, 13, 3),
     11, 9,
     "CSM Monthly: Forecast vs Baseline"
   );
-  // Stacked bar: On-Time / Late Bookings / Early Bookings (cols 1, 4-6)
-  FD_addMovementChart_(sh, startRow, 13, 24, 9, "CSM Booking Movement Breakdown");
+  FD_addMovementChart_(sh, startRow, 13, 11, 15, "CSM Booking Movement Breakdown");
 }
 /*********************************
  * Waterfall math + stacked chart
@@ -843,8 +841,10 @@ function FD_upsertLineChart_(sh, range, posRow, posCol, title) {
     .setNumHeaders(1)
     .setPosition(posRow, posCol, 0, 0)
     .setOption("title", title)
+    .setOption("width", 500)
+    .setOption("height", 320)
     .setOption("legend", { position: "top" })
-    .setOption("chartArea", { left: 60, top: 40, width: "85%", height: "70%" })
+    .setOption("chartArea", { left: 60, top: 40, width: "85%", height: "65%" })
     .setOption("hAxis", { slantedText: true, slantedTextAngle: 30 })
     .setOption("vAxis", { format: "$#,###" });
   sh.insertChart(builder.build());
@@ -858,10 +858,12 @@ function FD_addMovementChart_(sh, startRow, numRows, posRow, posCol, title) {
     .setNumHeaders(1)
     .setPosition(posRow, posCol, 0, 0)
     .setOption("title", title || "")
+    .setOption("width", 500)
+    .setOption("height", 320)
     .setOption("isStacked", true)
     .setOption("legend", { position: "top" })
     .setOption("backgroundColor", "#ffffff")
-    .setOption("chartArea", { left: 70, top: 30, width: "85%", height: "70%" })
+    .setOption("chartArea", { left: 70, top: 40, width: "85%", height: "65%" })
     .setOption("hAxis", { slantedText: true, slantedTextAngle: 30, textStyle: { fontSize: 10 } })
     .setOption("vAxis", { format: "$#,###", textStyle: { fontSize: 10 } })
     .setOption("series", {
