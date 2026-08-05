@@ -131,9 +131,6 @@ function MA_submitManualRow_(manualRow) {
     throw new Error(`Manual tab missing an ID column. Add one of: ${MA_CFG.MANUAL_ID_HEADERS.join(", ")}`);
   }
   const rowVals = manual.getRange(manualRow, 1, 1, manual.getLastColumn()).getValues()[0];
-  // Already submitted?
-  const alreadySubmitted = submittedCol ? String(rowVals[submittedCol - 1] || "").trim() : "";
-  if (alreadySubmitted) return;
   // Required fields
   const acctId = MA_normId_(rowVals[idCol - 1]);
   const fMonth = rowVals[fmCol - 1];
@@ -294,7 +291,17 @@ function MA_fillWorkingBlanks_(manual, working, manualRow, workingRow, mh, wh, o
   }
   // Forecast fields
   if (mh["Forecast Month"]) fill("Forecast Month", mVals[mh["Forecast Month"] - 1]);
-  if (mh["Forecast Amount"]) fill("Forecast Amount", MA_toNumber_(mVals[mh["Forecast Amount"] - 1]));
+  // Forecast Amount: also update if working currently has $0 and manual now has a real amount
+  if (mh["Forecast Amount"]) {
+    const newFa = MA_toNumber_(mVals[mh["Forecast Amount"] - 1]);
+    const faWorkCol = wh["Forecast Amount"];
+    if (faWorkCol) {
+      const curFa = wVals[faWorkCol - 1];
+      if (curFa === "" || curFa === null || (curFa === 0 && newFa !== 0)) {
+        working.getRange(workingRow, faWorkCol).setValue(newFa);
+      }
+    }
+  }
   if (mh["Forecast Category"] && wh["Forecast Category"]) fill("Forecast Category", mVals[mh["Forecast Category"] - 1]);
   if (mh["Outreach Status"] && wh["Outreach Status"]) fill("Outreach Status", mVals[mh["Outreach Status"] - 1]);
   if (mh["Latest Comment"] && wh["Latest Comment"]) fill("Latest Comment", mVals[mh["Latest Comment"] - 1]);
