@@ -124,10 +124,10 @@ function FD_buildExec_(ss) {
   sh.getRange("D4").setValue("Total Baseline").setFontWeight("bold");
   sh.getRange("F4").setValue("Variance").setFontWeight("bold");
   sh.getRange("H4").setValue("Gross Retention").setFontWeight("bold");
-  // Section headers
-  sh.getRange("A10:P10").setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  // Section headers — must merge before setValue to avoid repeating text in every cell
+  sh.getRange("A10:P10").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("MONTHLY PERFORMANCE");
-  sh.getRange("A24:P24").setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  sh.getRange("A24:P24").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("QUARTERLY PERFORMANCE");
   FD_writeExecTablesAndCharts_(ss, sh);
 }
@@ -208,10 +208,10 @@ function FD_buildCsm_(ss) {
   sh.getRange("D4").setValue("Baseline").setFontWeight("bold");
   sh.getRange("F4").setValue("Variance").setFontWeight("bold");
   sh.getRange("H4").setValue("Retention").setFontWeight("bold");
-  // Section headers
-  sh.getRange("A10:P10").setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  // Section headers — must merge before setValue to avoid repeating text in every cell
+  sh.getRange("A10:P10").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("MONTHLY PERFORMANCE");
-  sh.getRange("A24:P24").setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  sh.getRange("A24:P24").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("QUARTERLY PERFORMANCE");
   FD_writeCsmTablesAndCharts_(ss, sh);
 }
@@ -364,9 +364,10 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
   const BA = FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
   const FA = FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
-  // KPI formulas — larger, bold
-  sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
-  sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  // KPI formulas — sum monthly table (rows 12-23, col F=Total, col B=Baseline)
+  // Monthly cells already apply the full filter mask, so these totals are always correct
+  sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("D6").setFormula("=SUM(B12:B23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%").setFontSize(14).setFontWeight("bold");
   // Column widths
@@ -489,10 +490,10 @@ const maskB = `(${mask})>0`;
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
   const BA = FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
   const FA = FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
-sh.getRange("B6").setFormula(`=IFERROR(SUM(FILTER(${FA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
-sh.getRange("D6").setFormula(`=IFERROR(SUM(FILTER(${BA}, ${maskB})),0)`).setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)");
-  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%");
+  sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("D6").setFormula("=SUM(B12:B23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
+  sh.getRange("H6").setFormula('=IF(D6=0,"",B6/D6)').setNumberFormat("0.0%").setFontSize(14).setFontWeight("bold");
   const startRow = 11;
   sh.getRange(startRow, 1, 1, 8)
     .setValues([["Month","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
