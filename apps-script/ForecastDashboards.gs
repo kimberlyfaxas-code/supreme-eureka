@@ -85,7 +85,9 @@ function FD_buildExec_(ss) {
   sh.getRange("M2").setValue("Include");
   // Validations
   const lists = ss.getSheetByName(FD.LISTS_SHEET);
-  FD_setListValidation_(sh.getRange("C2"), FD.PRODUCT_ALLOW);
+  // Product: use lists sheet (includes "All") if available, else hardcoded with "All" prepended
+  if (lists) FD_setRangeValidation_(sh.getRange("C2"), lists.getRange("A2:A"));
+  else FD_setListValidation_(sh.getRange("C2"), ["All", ...FD.PRODUCT_ALLOW]);
   // Booking Type uses multi-select handler on E2
   if (lists) FD_setRangeValidation_(sh.getRange("E2"), lists.getRange("K2:K"));
   else FD_setListValidation_(sh.getRange("E2"), FD.BOOKING_TYPES);

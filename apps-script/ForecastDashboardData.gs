@@ -418,6 +418,7 @@ function FDDATA_normProduct_(p) {
 }
 function FDDATA_rollup_(forecastCategory) {
   const c = String(forecastCategory || "").toLowerCase();
+  if (!c) return "Expected";                             // no category yet → treat as Expected
   if (c.includes("adjustment (booked)")) return "Captured";
   if (c.includes("captured")) return "Captured";
   if (c.includes("not expected")) return "Not Expected"; // must come before "expected"
@@ -428,5 +429,5 @@ function FDDATA_rollup_(forecastCategory) {
   if (c.includes("non-recurring")) return "Not Expected";
   if (c.includes("lost")) return "Not Expected";
   if (c.includes("adjustment")) return "Not Expected";
-  return "Not Expected";
+  return "Expected";                                     // unknown category → Expected, not Not Expected
 }
