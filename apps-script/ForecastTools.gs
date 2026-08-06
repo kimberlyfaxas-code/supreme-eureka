@@ -34,6 +34,7 @@ function onOpen(e) {
       .addSeparator()
       .addItem("Refresh Dashboard Data (safe)", "FT_refreshDashboardData")
       .addItem("Build Dashboards", "FT_buildDashboards")
+      .addItem("Build Lost Logo Log", "CL_buildChurnLog")
       .addSeparator()
       .addItem("Build Exec Summary", "FT_buildExecSummary")
       .addItem("Build Waterfall", "FT_buildWaterfall")
