@@ -15,8 +15,8 @@ const CL = {
   SOURCE:  "CSM_Working_Forecast",
   OUTPUT:  "Lost_Accounts_FY2026",
   DATE_HEADER: "Date First Logged",
-  // Case-insensitive substrings that flag a row as lost/not-expected
-  LOST_PATTERNS: ["not expected", "non-recurring", "data error"],
+  // Only pull rows explicitly marked as lost — excludes adjustments, data errors, non-recurring
+  LOST_PATTERNS: ["lost account", "non renewal", "non-renewal"],
   // Priority order for finding a stable account key
   ID_CANDIDATES: [
     "account full id",
@@ -161,16 +161,8 @@ function CL_buildChurnLog() {
       .setBackground("#FEE2E2").setFontColor("#991B1B")
       .setRanges([fcatOutRange]).build(),
     SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("not expected")
+      .whenTextContains("Non-Renewal")
       .setBackground("#FEE2E2").setFontColor("#991B1B")
-      .setRanges([fcatOutRange]).build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("Non-Recurring")
-      .setBackground("#FEF9C3").setFontColor("#854D0E")
-      .setRanges([fcatOutRange]).build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("Data Error")
-      .setBackground("#FEF9C3").setFontColor("#854D0E")
       .setRanges([fcatOutRange]).build()
   ]);
 
