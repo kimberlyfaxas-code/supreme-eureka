@@ -156,10 +156,16 @@ function BF_backfillOwnership_({ overwrite, includeOptionalFields }) {
     updates++;
   }
 
-  // Write the entire working data range back in one batch call
-  if (wData.length > 0) {
-    const rng = w.getRange(2, 1, wData.length, wLastCol);
-    BF_setValuesIgnoringValidation_(rng, wData);
+  // Write back ONLY the columns we touch, preserving formulas.
+  // Never rewrite the whole range: that wipes data validation (dropdowns) and flattens formulas.
+  if (wData.length > 0 && updates > 0) {
+    const targetCols = [wCsmCol].concat(optionalTargets.map(t => t.wCol));
+    targetCols.forEach(col => {
+      const rng = w.getRange(2, col, wData.length, 1);
+      const formulas = rng.getFormulas();
+      const out = wData.map((row, i) => [formulas[i][0] || row[col - 1]]);
+      rng.setValues(out);
+    });
   }
 
   SpreadsheetApp.getActive().toast(
@@ -170,19 +176,6 @@ function BF_backfillOwnership_({ overwrite, includeOptionalFields }) {
 }
 
 /* ===================== HELPERS ===================== */
-
-/**
- * Clears data validation, writes values, then restores validation.
- * Prevents validation rules from rejecting valid script-written values.
- * TOP-LEVEL (not nested) so Apps Script V8 can see it.
- */
-function BF_setValuesIgnoringValidation_(range, values2d) {
-  const firstCell = range.getSheet().getRange(range.getRow(), range.getColumn());
-  const dv = firstCell.getDataValidation();
-  range.clearDataValidations();
-  range.setValues(values2d);
-  if (dv) range.setDataValidation(dv);
-}
 
 function BF_headerMap_(headers) {
   const map = {};
