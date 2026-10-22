@@ -74,7 +74,10 @@ function MA_onEdit(e) {
     const touchesIncludeCol = (includeCol >= editStartCol && includeCol <= editEndCol);
     if (!touchesIncludeCol) return;
     const lock = LockService.getDocumentLock();
-    if (!lock.tryLock(8000)) return;
+    if (!lock.tryLock(8000)) {
+      SpreadsheetApp.getActive().toast("Sheet is busy. Uncheck and re-check Include in Forecast to retry.", "Manual Add Not Submitted", 6);
+      return;
+    }
     try {
       const startRow = e.range.getRow();
       const numRows = e.range.getNumRows();
@@ -91,8 +94,38 @@ function MA_onEdit(e) {
       lock.releaseLock();
     }
   } catch (err) {
-    Logger.log("MA_onEdit error: " + err);
+    Logger.log("MA_onEdit error: " + (err && err.stack ? err.stack : err));
+    // Never fail silently: tell the user why nothing landed in Working
+    try {
+      SpreadsheetApp.getActive().toast(String(err && err.message ? err.message : err), "Manual Add Error", 10);
+    } catch (ignore) {}
   }
+}
+
+/**
+ * Run from the Apps Script editor to see why a manual add isn't syncing.
+ * Checks the onEdit trigger, required sheets and required headers; results in Logs.
+ */
+function MA_diagnose() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const out = [];
+  const trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === "TR_onEdit");
+  out.push(trig.length ? "OK: TR_onEdit trigger installed" : "PROBLEM: no TR_onEdit trigger. Run TR_installOnEditTrigger() once.");
+  const need = {
+    [MA_CFG.MANUAL_SHEET_NAME]: ["Include in Forecast", "Booking Type", "Forecast Month", "Forecast Amount"],
+    [MA_CFG.WORKING_SHEET_NAME]: ["Forecast Month", "Forecast Amount", "Forecast Source"],
+    [MA_CFG.OWNERSHIP_SHEET_NAME]: []
+  };
+  Object.keys(need).forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) { out.push(`PROBLEM: missing sheet "${name}"`); return; }
+    const hm = MA_headerMap_(sh);
+    need[name].forEach(h => { if (!hm[h]) out.push(`PROBLEM: "${name}" missing header "${h}"`); });
+    if (name === MA_CFG.MANUAL_SHEET_NAME && !MA_findAnyHeaderCol_(hm, MA_CFG.MANUAL_ID_HEADERS)) out.push(`PROBLEM: "${name}" has no ID header`);
+    if (name === MA_CFG.OWNERSHIP_SHEET_NAME && !MA_findAnyHeaderCol_(hm, MA_CFG.OWNERSHIP_ID_HEADERS)) out.push(`PROBLEM: "${name}" has no ID header`);
+  });
+  Logger.log(out.join("\n"));
+  return out;
 }
 /**
  * Main submit: one manual row -> one working row (by Manual Line ID).
