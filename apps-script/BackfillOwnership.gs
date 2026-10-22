@@ -169,7 +169,7 @@ function BF_backfillOwnership_({ overwrite, includeOptionalFields }) {
   }
 
   SpreadsheetApp.getActive().toast(
-    `Backfill done. Updated: ${updates}. Skips — noID: ${skipsNoId}, noMatch: ${skipsNoMatch}, alreadyFilled: ${skipsAlreadyFilled}`,
+    `Backfill done (v2, column-only write). Updated: ${updates}. Skips — noID: ${skipsNoId}, noMatch: ${skipsNoMatch}, alreadyFilled: ${skipsAlreadyFilled}`,
     "Ownership Backfill",
     8
   );
