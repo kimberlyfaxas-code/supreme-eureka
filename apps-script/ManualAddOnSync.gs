@@ -150,6 +150,8 @@ function MA_submitManualRow_(manualRow) {
   // Rebuild header maps AFTER ensuring columns exist
   const mh = MA_headerMap_(manual);
   const wh = MA_headerMap_(working);
+  // Working header is spelled "Forecast Catagory" in the live sheet; alias it
+  if (!wh["Forecast Category"] && wh["Forecast Catagory"]) wh["Forecast Category"] = wh["Forecast Catagory"];
   const manualIdCol = mh[MA_CFG.MANUAL_LINE_ID_HEADER];
   const submittedCol = mh[MA_CFG.SUBMITTED_AT_HEADER];
   const includeCol = mh["Include in Forecast"] || mh["Include"] || mh["Use"] || mh["Active"];
