@@ -57,6 +57,11 @@ function BF_backfillCurrentCsm_overwriteAll() {
   BF_backfillOwnership_({ overwrite: true, includeOptionalFields: false });
 }
 
+/** Overwrite Current CSM + all other ownership fields from Ownership_Refresh (refresh everything). */
+function BF_backfillCurrentCsm_plusFields_overwriteAll() {
+  BF_backfillOwnership_({ overwrite: true, includeOptionalFields: true });
+}
+
 /** Backfill Current CSM + other ownership fields (blanks only). */
 function BF_backfillCurrentCsm_plusFields_fillBlanks() {
   BF_backfillOwnership_({ overwrite: false, includeOptionalFields: true });
@@ -135,25 +140,34 @@ function BF_backfillOwnership_({ overwrite, includeOptionalFields }) {
     const match = ownershipIndex.get(key);
     if (!match) { skipsNoMatch++; continue; }
 
+    let changed = false;
+
+    // Current CSM
     const currentCsm = String(row[wCsmCol - 1] || "").trim();
-    if (!overwrite && currentCsm) { skipsAlreadyFilled++; continue; }
+    if ((overwrite || !currentCsm) && match.csm && match.csm !== currentCsm) {
+      row[wCsmCol - 1] = match.csm;
+      changed = true;
+    } else if (!match.csm && !currentCsm) {
+      skipsNoMatch++;
+    } else if (!overwrite && currentCsm) {
+      skipsAlreadyFilled++;
+    }
 
-    const newCsm = match.csm;
-    if (!newCsm) { skipsNoMatch++; continue; }
-
-    row[wCsmCol - 1] = newCsm;
-
+    // Optional fields are evaluated independently of Current CSM
     if (includeOptionalFields) {
       for (const t of optionalTargets) {
         const existingVal = row[t.wCol - 1];
-        if (!overwrite && existingVal !== "" && existingVal !== null) continue;
+        const isBlank = existingVal === "" || existingVal === null;
+        if (!overwrite && !isBlank) continue;
         const ownVal = match.rawRow[t.oCol - 1];
         if (ownVal === "" || ownVal === null || ownVal === undefined) continue;
+        if (ownVal === existingVal) continue;
         row[t.wCol - 1] = ownVal;
+        changed = true;
       }
     }
 
-    updates++;
+    if (changed) updates++;
   }
 
   // Write back ONLY the columns we touch, preserving formulas.
