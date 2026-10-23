@@ -414,7 +414,7 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
-    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    if (months[i].getFullYear() < 2027) sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)"); // Variance left blank for 2027 rows
     sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
   // Movement column background tints
@@ -451,7 +451,7 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
-    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    if (quarters[i][1][0].getFullYear() < 2027) sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)"); // Variance left blank for 2027 rows
     sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
   sh.getRange(qRow + 1, 3, quarters.length, 1).setBackground("#F0FDF4");
@@ -544,7 +544,7 @@ const maskB = `(${mask})>0`;
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
-    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    if (months[i].getFullYear() < 2027) sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)"); // Variance left blank for 2027 rows
     sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
   sh.getRange(startRow + 1, 3, months.length, 1).setBackground("#F0FDF4");
@@ -579,7 +579,7 @@ const maskB = `(${mask})>0`;
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 5).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskEarly})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 6).setFormula(`=C${r}+D${r}+E${r}`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
-    sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)");
+    if (quarters[i][1][0].getFullYear() < 2027) sh.getRange(r, 7).setFormula(`=F${r}-B${r}`).setNumberFormat("$#,##0;($#,##0)"); // Variance left blank for 2027 rows
     sh.getRange(r, 8).setFormula(`=IF(B${r}=0,"",F${r}/B${r})`).setNumberFormat("0.0%");
   }
   sh.getRange(qRow + 1, 3, quarters.length, 1).setBackground("#F0FDF4");
