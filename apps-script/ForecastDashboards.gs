@@ -368,6 +368,7 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
   // Use the (Window) columns when the helper has them; otherwise fall back to the FY2026-only columns
   const hasWin = !!FD_helperColA1_(helper, "Forecast Amount (Window)") && !!FD_helperColA1_(helper, "Baseline Amount (Window)");
+  if (!hasWin) ss.toast("_Dashboard_Data has no (Window) columns, so 2027 slips will show $0. Run the data refresh (FDDATA_buildDataAndLists), then rebuild the dashboards.", "Dashboard Build", 15);
   const BA = hasWin
     ? FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`)
     : FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
@@ -502,6 +503,7 @@ const maskB = `(${mask})>0`;
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
   // Use the (Window) columns when the helper has them; otherwise fall back to the FY2026-only columns
   const hasWin = !!FD_helperColA1_(helper, "Forecast Amount (Window)") && !!FD_helperColA1_(helper, "Baseline Amount (Window)");
+  if (!hasWin) ss.toast("_Dashboard_Data has no (Window) columns, so 2027 slips will show $0. Run the data refresh (FDDATA_buildDataAndLists), then rebuild the dashboards.", "Dashboard Build", 15);
   const BA = hasWin
     ? FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`)
     : FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
