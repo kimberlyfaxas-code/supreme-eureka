@@ -40,6 +40,7 @@ const FDDATA = {
   LISTS: "_Dashboard_Lists",
   FY_START: new Date(2026, 0, 1),
   FY_END: new Date(2026, 11, 31),
+  WINDOW_END: new Date(2027, 2, 31), // dashboard monthly/quarterly tables show through Q1 2027
   PRODUCT_ALLOW: ["Nursing", "iHuman", "Med", "Allied Health"],
   ROLLUP_OPTIONS: ["All", "Captured", "Expected", "At Risk", "Not Expected"],
   THEME: {
@@ -120,7 +121,9 @@ function FDDATA_buildHelper_(ss, helper) {
     "Reserved",              // W
     "Booking Type",          // X
     "Account Name",          // Y
-    "Account Full ID"        // Z
+    "Account Full ID",       // Z
+    "Baseline Amount (Window)", // AA  FY2026 through Q1 2027 (dashboard tables only)
+    "Forecast Amount (Window)"  // AB
   ];
   helper.getRange(1, 1, 1, header.length)
     .setValues([header])
@@ -193,7 +196,9 @@ function FDDATA_buildHelper_(ss, helper) {
       "",           // W Reserved
       bookingType,  // X Booking Type
       cAcctName ? String(r[cAcctName - 1] || "").trim() : "",  // Y Account Name
-      cAcctId   ? String(r[cAcctId   - 1] || "").trim() : ""   // Z Account Full ID
+      cAcctId   ? String(r[cAcctId   - 1] || "").trim() : "",  // Z Account Full ID
+      (bm && bm >= FDDATA.FY_START && bm <= FDDATA.WINDOW_END) ? baRaw : 0, // AA Baseline Amount (Window)
+      (fm && fm >= FDDATA.FY_START && fm <= FDDATA.WINDOW_END) ? faRaw : 0  // AB Forecast Amount (Window)
     ]);
   }
   // Append adjustments
@@ -206,6 +211,7 @@ function FDDATA_buildHelper_(ss, helper) {
     // Amount formats (H,I,U)
     helper.getRange(2, 8, out.length, 2).setNumberFormat("$#,##0;($#,##0)");
     helper.getRange(2, 21, out.length, 1).setNumberFormat("$#,##0;($#,##0)");
+    helper.getRange(2, 27, out.length, 2).setNumberFormat("$#,##0;($#,##0)");
   }
   helper.autoResizeColumns(1, header.length);
 }
@@ -281,7 +287,9 @@ function FDDATA_appendAdjustments_(adjSheet, out) {
       "",            // Reserved
       "Renewal",     // Booking Type (keep stable; use Adjs filter to isolate)
       "",            // Account Name (not available from adjustments sheet)
-      ""             // Account Full ID
+      "",            // Account Full ID
+      (bm && bm >= FDDATA.FY_START && bm <= FDDATA.WINDOW_END) ? baRaw : 0, // Baseline Amount (Window)
+      (fm && fm >= FDDATA.FY_START && fm <= FDDATA.WINDOW_END) ? faRaw : 0  // Forecast Amount (Window)
     ]);
   }
 }

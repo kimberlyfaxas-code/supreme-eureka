@@ -62,6 +62,7 @@ function FD_buildDashboards() {
 function FD_buildExec_(ss) {
   const sh = FD_getOrCreate_(ss, FD.EXEC_SHEET);
   sh.clear();
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.setFrozenRows(2);
   sh.getRange("A1:P1").merge().setValue("Health Retention Dashboard (FY2026)")
     .setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontSize(16).setFontWeight("bold")
@@ -127,7 +128,7 @@ function FD_buildExec_(ss) {
   // Section headers — must merge before setValue to avoid repeating text in every cell
   sh.getRange("A10:P10").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("MONTHLY PERFORMANCE");
-  sh.getRange("A24:P24").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  sh.getRange("A27:P27").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("QUARTERLY PERFORMANCE");
   FD_writeExecTablesAndCharts_(ss, sh);
 }
@@ -137,6 +138,7 @@ function FD_buildExec_(ss) {
 function FD_buildCsm_(ss) {
   const sh = FD_getOrCreate_(ss, FD.CSM_SHEET);
   sh.clear();
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.setFrozenRows(2);
   sh.getRange("A1:P1").merge().setValue("CSM Retention Dashboard (FY2026)")
     .setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontSize(16).setFontWeight("bold")
@@ -211,7 +213,7 @@ function FD_buildCsm_(ss) {
   // Section headers — must merge before setValue to avoid repeating text in every cell
   sh.getRange("A10:P10").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("MONTHLY PERFORMANCE");
-  sh.getRange("A24:P24").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
+  sh.getRange("A27:P27").merge().setBackground(FD.THEME.NAVY).setFontColor("#fff").setFontWeight("bold")
     .setValue("QUARTERLY PERFORMANCE");
   FD_writeCsmTablesAndCharts_(ss, sh);
 }
@@ -362,9 +364,9 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   const maskB = `(${mask})>0`;
   const BM = FD_helperColRange_(helperName, helper, "Baseline Month",  `'${helperName}'!F2:F`);
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
-  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
-  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
-  // KPI formulas — sum monthly table (rows 12-23, col F=Total, col B=Baseline)
+  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`);
+  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`);
+  // KPI formulas — FY2026 ONLY: sum rows 12-23 (Jan-Dec 2026). Jan/Feb 2027 rows (24-25) are excluded on purpose.
   // Monthly cells already apply the full filter mask, so these totals are always correct
   sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("D6").setFormula("=SUM(B12:B23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
@@ -388,7 +390,7 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   sh.getRange(startRow, 3).setBackground("#D1FAE5").setFontColor("#166534");
   sh.getRange(startRow, 4).setBackground("#FEF3C7").setFontColor("#92400E");
   sh.getRange(startRow, 5).setBackground("#DBEAFE").setFontColor("#1E40AF");
-  const months = FD_monthOrderFY26Dates_();
+  const months = FD_monthOrderDashboardDates_(); // 12 months of FY2026 + Jan/Feb 2027
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
   sh.getRange(startRow + 1, 1, months.length, 1).setNumberFormat("mmm-yy");
   for (let i = 0; i < months.length; i++) {
@@ -411,7 +413,7 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   sh.getRange(startRow + 1, 4, months.length, 1).setBackground("#FFFBEB");
   sh.getRange(startRow + 1, 5, months.length, 1).setBackground("#EFF6FF");
   // Quarterly table
-  const qRow = 25;
+  const qRow = 28; // section header is row 27
   sh.getRange(qRow, 1, 1, 8)
     .setValues([["Quarter","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
@@ -422,7 +424,8 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
     ["Q2 2026", [new Date(2026,3,1), new Date(2026,4,1), new Date(2026,5,1)]],
     ["Q3 2026", [new Date(2026,6,1), new Date(2026,7,1), new Date(2026,8,1)]],
-    ["Q4 2026", [new Date(2026,9,1), new Date(2026,10,1), new Date(2026,11,1)]]
+    ["Q4 2026", [new Date(2026,9,1), new Date(2026,10,1), new Date(2026,11,1)]],
+    ["Q1 2027", [new Date(2027,0,1), new Date(2027,1,1), new Date(2027,2,1)]]
   ];
   sh.getRange(qRow + 1, 1, quarters.length, 1).setValues(quarters.map(q => [q[0]]));
   for (let i = 0; i < quarters.length; i++) {
@@ -488,8 +491,8 @@ const mask = FD_csmMaskFormula_(helperName, sh);
 const maskB = `(${mask})>0`;
   const BM = FD_helperColRange_(helperName, helper, "Baseline Month",  `'${helperName}'!F2:F`);
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
-  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
-  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
+  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`);
+  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`);
   sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("D6").setFormula("=SUM(B12:B23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
@@ -510,7 +513,7 @@ const maskB = `(${mask})>0`;
   sh.setColumnWidth(6, 120);
   sh.setColumnWidth(7, 110);
   sh.setColumnWidth(8, 100);
-  const months = FD_monthOrderFY26Dates_();
+  const months = FD_monthOrderDashboardDates_(); // 12 months of FY2026 + Jan/Feb 2027
   sh.getRange(startRow + 1, 1, months.length, 1).setValues(months.map(d => [d]));
   sh.getRange(startRow + 1, 1, months.length, 1).setNumberFormat("mmm-yy");
   for (let i = 0; i < months.length; i++) {
@@ -531,7 +534,7 @@ const maskB = `(${mask})>0`;
   sh.getRange(startRow + 1, 3, months.length, 1).setBackground("#F0FDF4");
   sh.getRange(startRow + 1, 4, months.length, 1).setBackground("#FFFBEB");
   sh.getRange(startRow + 1, 5, months.length, 1).setBackground("#EFF6FF");
-  const qRow = 25;
+  const qRow = 28; // section header is row 27
   sh.getRange(qRow, 1, 1, 8)
     .setValues([["Quarter","Baseline","On-Time Forecast","Late Bookings","Early Bookings","Total Forecast","Variance","Retention %"]])
     .setFontWeight("bold").setBackground("#eef2f7");
@@ -542,7 +545,8 @@ const maskB = `(${mask})>0`;
     ["Q1 2026", [new Date(2026,0,1), new Date(2026,1,1), new Date(2026,2,1)]],
     ["Q2 2026", [new Date(2026,3,1), new Date(2026,4,1), new Date(2026,5,1)]],
     ["Q3 2026", [new Date(2026,6,1), new Date(2026,7,1), new Date(2026,8,1)]],
-    ["Q4 2026", [new Date(2026,9,1), new Date(2026,10,1), new Date(2026,11,1)]]
+    ["Q4 2026", [new Date(2026,9,1), new Date(2026,10,1), new Date(2026,11,1)]],
+    ["Q1 2027", [new Date(2027,0,1), new Date(2027,1,1), new Date(2027,2,1)]]
   ];
   sh.getRange(qRow + 1, 1, quarters.length, 1).setValues(quarters.map(q => [q[0]]));
   for (let i = 0; i < quarters.length; i++) {
@@ -1021,6 +1025,10 @@ function FD_monthOrderFY26Dates_() {
     new Date(2026,6,1), new Date(2026,7,1), new Date(2026,8,1),
     new Date(2026,9,1), new Date(2026,10,1), new Date(2026,11,1)
   ];
+}
+// FY2026 months plus Jan/Feb 2027 (display only; KPI cards at the top sum the first 12 rows only)
+function FD_monthOrderDashboardDates_() {
+  return FD_monthOrderFY26Dates_().concat([new Date(2027,0,1), new Date(2027,1,1)]);
 }
 function FD_uniqueMonthsFromHelper_(ss) {
   const helper = ss.getSheetByName(FD.HELPER_SHEET);
