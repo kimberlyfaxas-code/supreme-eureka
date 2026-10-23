@@ -45,6 +45,8 @@ function MSF_onEdit_(e) {
       e.range.setValue("All");
       return;
     }
+    // Sheets' own "Allow multiple selections" dropdown already writes "A, B": leave it as is
+    if (newVal.indexOf(",") >= 0) return;
     if (!oldVal || oldVal === "All") {
       e.range.setValue(newVal);
       return;
