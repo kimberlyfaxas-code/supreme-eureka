@@ -364,8 +364,14 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
   const maskB = `(${mask})>0`;
   const BM = FD_helperColRange_(helperName, helper, "Baseline Month",  `'${helperName}'!F2:F`);
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
-  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`);
-  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`);
+  // Use the (Window) columns when the helper has them; otherwise fall back to the FY2026-only columns
+  const hasWin = !!FD_helperColA1_(helper, "Forecast Amount (Window)") && !!FD_helperColA1_(helper, "Baseline Amount (Window)");
+  const BA = hasWin
+    ? FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`)
+    : FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
+  const FA = hasWin
+    ? FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`)
+    : FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
   // KPI formulas — FY2026 ONLY: sum rows 12-23 (Jan-Dec 2026). Jan/Feb 2027 rows (24-25) are excluded on purpose.
   // Monthly cells already apply the full filter mask, so these totals are always correct
   sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
@@ -498,8 +504,14 @@ const mask = FD_csmMaskFormula_(helperName, sh);
 const maskB = `(${mask})>0`;
   const BM = FD_helperColRange_(helperName, helper, "Baseline Month",  `'${helperName}'!F2:F`);
   const FM = FD_helperColRange_(helperName, helper, "Forecast Month",  `'${helperName}'!G2:G`);
-  const BA = FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`);
-  const FA = FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`);
+  // Use the (Window) columns when the helper has them; otherwise fall back to the FY2026-only columns
+  const hasWin = !!FD_helperColA1_(helper, "Forecast Amount (Window)") && !!FD_helperColA1_(helper, "Baseline Amount (Window)");
+  const BA = hasWin
+    ? FD_helperColRange_(helperName, helper, "Baseline Amount (Window)", `'${helperName}'!AA2:AA`)
+    : FD_helperColRange_(helperName, helper, "Baseline Amount", `'${helperName}'!H2:H`);
+  const FA = hasWin
+    ? FD_helperColRange_(helperName, helper, "Forecast Amount (Window)", `'${helperName}'!AB2:AB`)
+    : FD_helperColRange_(helperName, helper, "Forecast Amount", `'${helperName}'!I2:I`);
   sh.getRange("B6").setFormula("=SUM(F12:F23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("D6").setFormula("=SUM(B12:B23)").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
   sh.getRange("F6").setFormula("=B6-D6").setNumberFormat("$#,##0;($#,##0)").setFontSize(14).setFontWeight("bold");
