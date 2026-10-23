@@ -399,7 +399,11 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
     const monthMaskOnTime   = `((${mask})*N(${BM}=${mCell})*N(${FM}=${mCell}))>0`;
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
     const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
-    const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
+    // 2027 rows: baseline "moves with" the booking -> include baseline carried in from earlier months
+    const carryIn = months[i].getFullYear() >= 2027;
+    const monthMaskBaseline = carryIn
+      ? `((${mask})*(N(${BM}=${mCell})+N(${FM}=${mCell})*N(${BM}<${mCell})))>0`
+      : `((${mask})*N(${BM}=${mCell}))>0`;
     sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
@@ -436,7 +440,10 @@ function FD_writeExecTablesAndCharts_(ss, sh) {
     const qMaskOnTime   = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0))))>0`;
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
     const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
-    const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
+    const qCarryIn = quarters[i][1][0].getFullYear() >= 2027;
+    const qMaskBaseline = qCarryIn
+      ? `((${mask})*(N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))+N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate})))>0`
+      : `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
     sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
@@ -522,7 +529,11 @@ const maskB = `(${mask})>0`;
     const monthMaskOnTime   = `((${mask})*N(${BM}=${mCell})*N(${FM}=${mCell}))>0`;
     const monthMaskLate     = `((${mask})*N(${FM}=${mCell})*N(${BM}<${mCell}))>0`;
     const monthMaskEarly    = `((${mask})*N(${FM}=${mCell})*N(${BM}>${mCell}))>0`;
-    const monthMaskBaseline = `((${mask})*N(${BM}=${mCell}))>0`;
+    // 2027 rows: baseline "moves with" the booking -> include baseline carried in from earlier months
+    const carryIn = months[i].getFullYear() >= 2027;
+    const monthMaskBaseline = carryIn
+      ? `((${mask})*(N(${BM}=${mCell})+N(${FM}=${mCell})*N(${BM}<${mCell})))>0`
+      : `((${mask})*N(${BM}=${mCell}))>0`;
     sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${monthMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${monthMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
@@ -557,7 +568,10 @@ const maskB = `(${mask})>0`;
     const qMaskOnTime   = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0))))>0`;
     const qMaskLate     = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate}))>0`;
     const qMaskEarly    = `((${mask})*N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(ISNA(MATCH(${BM}, ${dateConsts}, 0)))*N(${BM}>${qLastDate}))>0`;
-    const qMaskBaseline = `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
+    const qCarryIn = quarters[i][1][0].getFullYear() >= 2027;
+    const qMaskBaseline = qCarryIn
+      ? `((${mask})*(N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0)))+N(ISNUMBER(MATCH(${FM}, ${dateConsts}, 0)))*N(${BM}<${qFirstDate})))>0`
+      : `((${mask})*N(ISNUMBER(MATCH(${BM}, ${dateConsts}, 0))))>0`;
     sh.getRange(r, 2).setFormula(`=IFERROR(SUM(FILTER(${BA}, ${qMaskBaseline})),0)`).setNumberFormat("$#,##0;($#,##0)").setFontWeight("bold");
     sh.getRange(r, 3).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskOnTime})),0)`).setNumberFormat("$#,##0;($#,##0)");
     sh.getRange(r, 4).setFormula(`=IFERROR(SUM(FILTER(${FA}, ${qMaskLate})),0)`).setNumberFormat("$#,##0;($#,##0)");
