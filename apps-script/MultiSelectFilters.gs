@@ -8,10 +8,10 @@ const MSF_CFG = {
   ENABLED: true,
   DELIM: ", ",
   RESET_VALUES: new Set(["All", ""]),
-  // Multi-select targets ONLY (keep this ONLY for Booking Type)
+  // Multi-select targets: picking a value adds it; picking it again removes it; "All" resets
   TARGETS: {
-    "Health Retention Dashboard (FY2026)": new Set(["E2"]),        // Booking
-    "CSM Retention Dashboard (FY2026)": new Set(["G2"]),           // Booking
+    "Health Retention Dashboard (FY2026)": new Set(["C2", "E2", "G2", "I2"]),        // Product, Booking, Outreach, Fcst Cat
+    "CSM Retention Dashboard (FY2026)": new Set(["C2", "E2", "G2", "I2", "K2"]),     // CSM, Product, Booking, Outreach, Fcst Cat
     "FY2026 Monthly Waterfall": new Set(["H2"]),                   // Booking
     "FY2026 Waterfall": new Set(["F2", "I2", "L2"])                // CSM, Product, Fcst Cat
   },

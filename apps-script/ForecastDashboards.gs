@@ -103,6 +103,7 @@ function FD_buildExec_(ss) {
   }
   FD_setListValidation_(sh.getRange("K2"), FD.MANUAL_OPTIONS);
   FD_setListValidation_(sh.getRange("M2"), FD.ADJ_OPTIONS);
+  FD_allowMultiValues_(sh, ["C2", "E2", "G2", "I2"]); // multi-select filters (see MultiSelectFilters.gs)
   // ---- Force defaults AFTER validations (prevents blank until user clicks) ----
   const vC2 = String(sh.getRange("C2").getDisplayValue() || "").trim();
   if (!vC2) sh.getRange("C2").setValue("All");
@@ -186,6 +187,7 @@ function FD_buildCsm_(ss) {
   // Manual/Adjs
   FD_setListValidation_(sh.getRange("M2"), FD.MANUAL_OPTIONS);
   FD_setListValidation_(sh.getRange("O2"), FD.ADJ_OPTIONS);
+  FD_allowMultiValues_(sh, ["C2", "E2", "G2", "I2", "K2"]); // multi-select filters (see MultiSelectFilters.gs)
   // ---- Force defaults AFTER validations (prevents blank until user clicks) ----
   const vC2 = String(sh.getRange("C2").getDisplayValue() || "").trim();
   if (!vC2) sh.getRange("C2").setValue("All");
@@ -833,10 +835,10 @@ function FD_execMaskFormula_(helperName, sh) {
   const catCol      = FD_helperColRange_(helperName, helper, "Forecast Category", `'${helperName}'!R2:R`);
   const isManualCol = FD_helperColRange_(helperName, helper, "Is Manual Add",     `'${helperName}'!L2:L`);
   const isAdjCol    = FD_helperColRange_(helperName, helper, "Is Adjustment",     `'${helperName}'!M2:M`);
-  const productMask  = `N(IF(${product}="All",TRUE,${prodCol}=${product}))`;
+  const productMask  = FD_multiSelectMask_(product, prodCol);
   const bookingMask  = FD_multiSelectMask_(booking, bookCol); // returns N(...)
-  const outreachMask = `N(IF(${outreach}="All",TRUE,${outCol}=${outreach}))`;
-  const fcatMask     = `N(IF(${fcat}="All",TRUE,${catCol}=${fcat}))`;
+  const outreachMask = FD_multiSelectMask_(outreach, outCol);
+  const fcatMask     = FD_multiSelectMask_(fcat, catCol);
   const manualMask = FD_manualBoolMask_(manual, isManualCol);
   const adjsMask   = FD_adjBoolMask_(adjs, isAdjCol);
   return `(${productMask})*(${bookingMask})*(${outreachMask})*(${fcatMask})*(${manualMask})*(${adjsMask})`;
@@ -858,11 +860,11 @@ function FD_csmMaskFormula_(helperName, sh) {
   const catCol     = FD_helperColRange_(helperName, helper, "Forecast Category", `'${helperName}'!R2:R`);
   const isManualCol= FD_helperColRange_(helperName, helper, "Is Manual Add",     `'${helperName}'!L2:L`);
   const isAdjCol   = FD_helperColRange_(helperName, helper, "Is Adjustment",     `'${helperName}'!M2:M`);
-  const csmMask      = `N(IF(${csm}="All",TRUE,${csmCol}=${csm}))`;
-  const productMask  = `N(IF(${product}="All",TRUE,${prodCol}=${product}))`;
+  const csmMask      = FD_multiSelectMask_(csm, csmCol);
+  const productMask  = FD_multiSelectMask_(product, prodCol);
   const bookingMask  = FD_multiSelectMask_(booking, bookCol); // returns N(...)
-  const outreachMask = `N(IF(${outreach}="All",TRUE,${outCol}=${outreach}))`;
-  const fcatMask     = `N(IF(${fcat}="All",TRUE,${catCol}=${fcat}))`;
+  const outreachMask = FD_multiSelectMask_(outreach, outCol);
+  const fcatMask     = FD_multiSelectMask_(fcat, catCol);
   const manualMask = FD_manualBoolMask_(manual, isManualCol);
   const adjsMask   = FD_adjBoolMask_(adjs, isAdjCol);
   return `(${csmMask})*(${productMask})*(${bookingMask})*(${outreachMask})*(${fcatMask})*(${manualMask})*(${adjsMask})`;
@@ -1036,6 +1038,13 @@ function FD_setListValidation_(range, list) {
     .setAllowInvalid(false)
     .build();
   range.setDataValidation(rule);
+}
+function FD_allowMultiValues_(sh, a1List) {
+  a1List.forEach(a1 => {
+    const r = sh.getRange(a1);
+    const dv = r.getDataValidation();
+    if (dv) r.setDataValidation(dv.copy().setAllowInvalid(true).build());
+  });
 }
 function FD_setRangeValidation_(range, srcRange) {
   const rule = SpreadsheetApp.newDataValidation()
