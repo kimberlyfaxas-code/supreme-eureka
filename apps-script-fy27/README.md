@@ -30,6 +30,9 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   Matched: forecast uses the OTC cohort month and students x price. Unmatched baseline: baseline value is
   carried at its Tableau forecast month (assumed rebooking). Unmatched OTC: its own line (new cohort / not in Tableau).
 - Cohort code present = rebooking; absent = roster chasing (first booking). Mixed = Mix.
+- Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
+  baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
+  missing from Tableau entirely are exempt and flagged instead.
 - Rating: Gray drops roster-chasing lines (rebookings only); Black zeroes the client (Value If Booked is kept).
 - Positive adjustments are tagged Not Expected.
 - Cohort-size trend: estimate x (history final/estimate) when >= 2 completed orders and the gap is >= 10%.

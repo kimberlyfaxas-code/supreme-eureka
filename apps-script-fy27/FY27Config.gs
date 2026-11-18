@@ -37,6 +37,11 @@ const FY27_CFG = {
   TREND_MIN_DELTA: 0.10,
   TREND_CLAMP: [0.5, 1.5],
 
+  // An OTC cohort for a program (account + product group + RN/PN/Step family) that had no booking
+  // in the baseline year is shown as Not Expected (value kept in "Value If Booked"). Accounts that are
+  // not in Tableau at all are exempt: those are flagged for review instead.
+  EXCLUDE_UNBOOKED_PROGRAMS: true,
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

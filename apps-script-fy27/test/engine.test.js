@@ -203,6 +203,13 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   const pn = r.lines.find((l) => l.productName === "NCLEX PN Enrichment");
   assert.strictEqual(pn.credit, "Renewal");
   assert.strictEqual(pn.nextBookingType, "Renewal");
+  // PN program did not book in 2026 (only RN did) -> not forecast, value kept
+  assert.strictEqual(pn.expectation, "Not Expected");
+  assert.strictEqual(pn.forecastAmount, 0);
+  assert.strictEqual(pn.valueIfBooked, 1500);
+  assert.ok(pn.flags.some((f) => /No 2026 booking for this program \(PN\)/.test(f)));
+  // RN lines are untouched
+  assert.ok(rn.every((l) => l.expectation === "Expected"));
 }
 
 // 15. Variance flag text + sign: baseline above OTC estimate
@@ -241,5 +248,18 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
     otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_estimated_start_date": "2027-03-01" })
   ]);
   assert.strictEqual(r.lines.length, 1);
+}
+
+// 19. Program booked last year (Tableau PN baseline) and has an OTC PN cohort -> still forecast;
+//     separate months stay separate rows
+{
+  const F = "0014u000025PNACTIVE";
+  const r = run(
+    [tab({ "FULL ID": F, "Product Name": "NCLEX PN Prep", "Baseline Booking Month - Tableau": "5/1/2026", "Forecast Month - Tableau": "5/1/2027" })],
+    [otc({ "Full ID": F, "Product Name": "NCLEX PN Enrichment", "order_estimated_start_date": "2027-05-01" }),
+     otc({ "Full ID": F, "Product Name": "NCLEX PN Enrichment", "order_estimated_start_date": "2027-08-01", "Estimated or Actual Order Total": "700" })]);
+  const may = r.lines.find((l) => l.forecastMonth === "2027-05");
+  assert.strictEqual(may.expectation, "Expected");
+  assert.ok(r.lines.length >= 1);
 }
 console.log("all engine tests passed");

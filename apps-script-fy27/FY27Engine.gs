@@ -226,11 +226,14 @@ function FY27_buildHistory_(otc, cfg) {
   const byKey = {};
   const firstByAccountGroup = {};
   const firstByCohort = {};
+  const lastByFamily = {};
   otc.forEach(function (o) {
     if (o.dne || !o.booked || !o.actStart) return;
     const k = o.fullId + "|" + o.group + "|" + o.family;
     const h = byKey[k] || (byKey[k] = { n: 0, est: 0, fin: 0 });
     if (o.estStudents > 0 && o.finalStudents >= 0) { h.n++; h.est += o.estStudents; h.fin += o.finalStudents; }
+    const lk = o.fullId + "|" + o.group + "|" + o.family;
+    if (!lastByFamily[lk] || o.actStart > lastByFamily[lk]) lastByFamily[lk] = o.actStart;
     const ag = o.fullId + "|" + o.group;
     if (!firstByAccountGroup[ag] || o.actStart < firstByAccountGroup[ag]) firstByAccountGroup[ag] = o.actStart;
     if (o.cohortCode) {
@@ -246,7 +249,7 @@ function FY27_buildHistory_(otc, cfg) {
       ratio[k] = { ratio: Math.min(hi, Math.max(lo, h.fin / h.est)), n: h.n };
     }
   });
-  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort };
+  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort, lastByFamily: lastByFamily };
 }
 
 /* ---------------- main engine ---------------- */
@@ -290,6 +293,25 @@ function FY27_buildForecast(input, cfg) {
   const target = otcAll.filter(function (o) { return !o.dne && FY27_yearOf_(o.month) === year; });
   const tableauIds = {};
   base.forEach(function (b) { if (b.fullId) tableauIds[b.fullId] = true; });
+
+  // Which programs (account + product group + family) actually booked in the baseline year?
+  // An OTC cohort for a program that did NOT book last year is not forecast (e.g. a PN program
+  // that stopped running when two sites merged contracts). Value is kept in "Value If Booked".
+  const activeProg = {};
+  function markActive(fullId, group, family) {
+    const k = fullId + "|" + group;
+    (activeProg[k] = activeProg[k] || {})[family] = true;
+  }
+  base.forEach(function (b) { if (b.fullId && !b.isAdj && b.baseAmt > 0) markActive(b.fullId, b.group, b.family); });
+  otcAll.forEach(function (o) {
+    if (!o.dne && o.booked && FY27_yearOf_(o.actStart) === year - 1) markActive(o.fullId, o.group, o.family);
+  });
+  function programActive(fullId, group, family) {
+    const fam = activeProg[fullId + "|" + group];
+    if (!fam) return false;
+    if (family === "Other") return true;
+    return !!(fam[family] || fam["Other"]);
+  }
 
   let lines = [];
   const usedOtc = {};         // OTC row -> true once assigned
@@ -604,6 +626,14 @@ function FY27_buildForecast(input, cfg) {
       ? "Not in Tableau (no " + (year - 1) + " actuals): new account or missing bookings - verify"
       : "No matching " + (year - 1) + " baseline for this cohort - new cohort or product");
     applyRatingAndAdj(L, null, !o.booked);
+    // Existing account, but this program did not book last year -> do not add it for next year
+    if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
+      const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
+      L.expectation = "Not Expected";
+      L.forecastAmount = 0;
+      L.flags.push("No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "") +
+        " - cohort in OTC not forecast. Override if the program is returning");
+    }
     lines.push(L);
   });
 
@@ -747,7 +777,7 @@ function FY27_severity_(flag) {
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
       f.indexOf("no upcoming cohort") >= 0 || f.indexOf("no otc contract") >= 0) return "High";
   if (f.indexOf("not complete yet") >= 0 || f.indexOf("no matching") >= 0 || f.indexOf("after contract end") >= 0 ||
-      f.indexOf("positive adjustment") >= 0 ||
+      f.indexOf("positive adjustment") >= 0 || f.indexOf("booking for this program") >= 0 ||
       f.indexOf("adjustment: baseline") >= 0) return "Medium";
   return "Low";
 }
