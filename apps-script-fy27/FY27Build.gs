@@ -52,6 +52,7 @@ const FY27_FORECAST_COLUMNS = [
   ["Forecast Month", "forecastMonth", "month"],
   ["Forecast Quarter", "forecastQuarter"],
   ["Baseline Amount", "baselineAmount", "money"],
+  ["Baseline vs OTC Variance", "adjVariance", "money"],
   ["Value If Booked", "valueIfBooked", "money"],
   ["Forecast Amount", "forecastAmount", "money"],
   ["Est. Students (OTC)", "estStudents"],
@@ -93,12 +94,13 @@ function FY27_run() {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows, now: new Date()
     }, cfg);
 
-    FY27_writeForecast_(ss, result.lines);
+    FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
+    FY27_writeForecast_(ss, result.detail, cfg.SHEETS.DETAIL);
     FY27_writeReview_(ss, result);
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
     ss.toast(
-      result.lines.length + " forecast lines, " + result.review.length + " flags, total $" +
+      result.lines.length + " forecast rows (" + result.detail.length + " detail), " + result.review.length + " flags, total $" +
       Math.round(result.stats.total).toLocaleString() + ". See '" + cfg.SHEETS.REVIEW + "'.",
       "FY27 Forecast", 10);
   } finally {
@@ -127,8 +129,7 @@ function FY27_monthToDate_(key) {
   return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
 }
 
-function FY27_writeForecast_(ss, lines) {
-  const name = FY27_CFG.SHEETS.FORECAST;
+function FY27_writeForecast_(ss, lines, name) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear();
   const headers = FY27_FORECAST_COLUMNS.map(function (c) { return c[0]; });

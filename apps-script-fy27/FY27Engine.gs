@@ -53,7 +53,22 @@ function FY27_num_(v) {
   if (isNaN(n)) return 0;
   return neg ? -Math.abs(n) : n;
 }
-function FY27_str_(v) { return v === null || v === undefined ? "" : String(v).trim(); }
+var FY27_MONTH_NAMES_ = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function FY27_str_(v) {
+  if (v === null || v === undefined) return "";
+  // Sheets auto-converts text like "May 2028" into a Date; show it the way OTC does
+  if (Object.prototype.toString.call(v) === "[object Date]") {
+    return isNaN(v.getTime()) ? "" : FY27_MONTH_NAMES_[v.getMonth()] + " " + v.getFullYear();
+  }
+  return String(v).trim();
+}
+/** "New Logo" / "New" -> true. (A bare /new/ test also matches "Re-new-al", which is wrong.) */
+function FY27_isNewType_(v) { return /^\s*new/i.test(FY27_str_(v)); }
+function FY27_uniqJoin_(arr, sep) {
+  const seen = {}, out = [];
+  arr.forEach(function (x) { const t = FY27_str_(x); if (t && !seen[t]) { seen[t] = true; out.push(t); } });
+  return out.join(sep || "; ");
+}
 function FY27_bool_(v) {
   if (v === true) return true;
   const s = FY27_str_(v).toLowerCase();
@@ -150,6 +165,7 @@ function FY27_normOtc_(r, cfg) {
     group: group,
     productName: pname,
     family: FY27_family_(group, pname),
+    bookingId: FY27_str_(FY27_pick_(r, ["booking_id"])),
     contractId: FY27_str_(FY27_pick_(r, ["Contract ID", "contract_id"])),
     contractStart: FY27_monthKey_(FY27_pick_(r, ["Contract Start Date", "contract_start_date"])),
     contractEnd: FY27_monthKey_(FY27_pick_(r, ["Contract End Date", "contract_end_date"])),
@@ -247,8 +263,8 @@ function FY27_buildForecast(input, cfg) {
     ? now.getFullYear() + "-" + FY27_pad2_(now.getMonth() + 1)
     : FY27_monthKey_(cfg.ACTUALS_THROUGH);
 
-  const otcAll = input.otc.map(function (r) { return FY27_normOtc_(r, cfg); }).filter(function (o) { return o.fullId; });
-  const base = input.tableau.map(function (r) { return FY27_normBaseline_(r, cfg); })
+  const otcAll = input.otc.map(function (r, i) { const o = FY27_normOtc_(r, cfg); if (!o.row) o.row = "i" + i; return o; }).filter(function (o) { return o.fullId; });
+  const base = input.tableau.map(function (r, i) { const b = FY27_normBaseline_(r, cfg); if (!b.row) b.row = "i" + i; return b; })
     .filter(function (b) { return b.fullId || b.baseAmt || b.group; });
   const sfById = {};
   (input.salesforce || []).forEach(function (r) {
@@ -275,7 +291,7 @@ function FY27_buildForecast(input, cfg) {
   const tableauIds = {};
   base.forEach(function (b) { if (b.fullId) tableauIds[b.fullId] = true; });
 
-  const lines = [];
+  let lines = [];
   const usedOtc = {};         // OTC row -> true once assigned
   const writeback = {};       // tableau row number -> info
 
@@ -313,19 +329,27 @@ function FY27_buildForecast(input, cfg) {
     }
   });
 
-  function creditFor(fullId, group, cohortCode, month, fallbackType) {
-    let first = "";
-    if (cohortCode) first = history.firstByCohort[fullId + "|" + cohortCode] || "";
-    if (!first) first = history.firstByAccountGroup[fullId + "|" + group] || "";
-    if (!cohortCode && !first) {
-      // brand-new cohort (never booked) -> first booking itself -> New
-      return { credit: "New", basis: "first booking of cohort" };
+  /**
+   * Credit type (New vs Renewal) is decided at the account + PRODUCT GROUP level:
+   *  1. If the group already has a Tableau baseline line, the next booking is whatever Tableau
+   *     column U ("Next Booking Type") says - normally Renewal.
+   *  2. Otherwise (group not in Tableau) apply the 12-month rule from the group's first OTC booking:
+   *     within 12 months = New, after = Renewal, never booked = New.
+   * The basis is written next to the credit so every New is traceable.
+   */
+  function creditFor(fullId, group, month, baselineRow) {
+    if (baselineRow && baselineRow.nextType) {
+      return { credit: FY27_isNewType_(baselineRow.nextType) ? "New" : "Renewal", basis: "Tableau Next Booking Type (col U)" };
     }
-    if (!first) {
-      return { credit: /new/i.test(fallbackType || "") ? "New" : "Renewal", basis: "Tableau booking type (no OTC history)" };
+    const sibs = (baseByAcctGroup[fullId + "|" + group] || []).filter(function (x) { return x.nextType && !x.isAdj; });
+    if (sibs.length) {
+      sibs.sort(function (x, y) { return x.baseMonth < y.baseMonth ? 1 : x.baseMonth > y.baseMonth ? -1 : 0; });
+      return { credit: FY27_isNewType_(sibs[0].nextType) ? "New" : "Renewal", basis: "Same product group in Tableau (col U)" };
     }
+    const first = history.firstByAccountGroup[fullId + "|" + group] || "";
+    if (!first) return { credit: "New", basis: "First booking of this product group" };
     const age = FY27_monthDiff_(month, first);
-    return { credit: age < cfg.NEW_CREDIT_MONTHS ? "New" : "Renewal", basis: "first booked " + first };
+    return { credit: age < cfg.NEW_CREDIT_MONTHS ? "New" : "Renewal", basis: "12-month rule: first booked " + first };
   }
 
   function sfAttrs(fullId) { return sfById[fullId] || {}; }
@@ -336,7 +360,7 @@ function FY27_buildForecast(input, cfg) {
       fullId: "", rating: "", clientCategory: "", clientSubCategory: "", billingState: "",
       accountOwner: "", csm: "", parentAccount: "", billingCountry: "", parentAccountId: "",
       accountRecordType: "", productGroup: "", productName: "", forecastSource: "",
-      priorBookingType: "", nextBookingType: "", adjustment: "", baselineMonth: "", bookingId: "",
+      priorBookingType: "", nextBookingType: "", adjustment: "", baselineMonth: "", bookingId: "", adjVariance: "",
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
@@ -422,6 +446,11 @@ function FY27_buildForecast(input, cfg) {
       let hasCode = false, hasNoCode = false;
       matches.forEach(function (o) { if (o.cohortCode) hasCode = true; else hasNoCode = true; });
       const bookingType = hasCode && hasNoCode ? "Mix" : hasCode ? "Rebooking" : "Roster Chasing";
+      const otcEstTotal = matches.reduce(function (t, o) { return t + o.total; }, 0);
+      // baseline $ lands on the line in the baseline's own forecast month (else the first line)
+      let baseIdx = 0;
+      matches.forEach(function (o, i) { if (o.month === b.fcMonth && baseIdx === 0 && i > 0) baseIdx = i; });
+      if (matches[0].month === b.fcMonth) baseIdx = 0;
       matches.forEach(function (o, i) {
         const L = makeLine(attrs);
         L.productGroup = b.group;
@@ -431,12 +460,13 @@ function FY27_buildForecast(input, cfg) {
         L.contractStart = o.contractStart;
         L.contractEnd = o.contractEnd;
         L.forecastMonth = o.month;
-        L.baselineAmount = i === 0 ? b.baseAmt : 0;
+        L.baselineAmount = i === baseIdx ? b.baseAmt : 0;
+        L.bookingId = FY27_uniqJoin_([b.bookingId, o.bookingId]);
         L.estStudents = o.estStudents;
         L.price = o.price;
         L.cohortNames = o.cohortName;
         L.cohortCodes = o.cohortCode;
-        L.priorCohorts = i === 0 ? prior : "";
+        L.priorCohorts = i === baseIdx ? prior : "";
         L.bookingType = bookingType;
         L.status = o.booked ? "Booked" : "Forecast";
         // amount: actual if booked, else (trend-adjusted) students x price, else OTC total
@@ -451,10 +481,20 @@ function FY27_buildForecast(input, cfg) {
           }
         }
         L.forecastAmount = amt;
-        const cr = creditFor(o.fullId, o.group, o.cohortCode, o.month, b.nextType);
+        const cr = creditFor(o.fullId, o.group, o.month, b);
         L.credit = cr.credit; L.creditBasis = cr.basis;
         L.expectation = o.booked ? "Captured" : "Expected";
-        if (i === 0) baseFlags.forEach(function (f) { L.flags.push(f); });
+        if (i === baseIdx) {
+          baseFlags.forEach(function (f) { L.flags.push(f); });
+          // Baseline includes adjustments (extra students, overages) that the OTC contract estimate does not
+          const delta = FY27_round2_(b.baseAmt - otcEstTotal);
+          L.adjVariance = delta;
+          if (Math.abs(delta) >= 1) {
+            L.flags.push("Adjustment: baseline $" + Math.round(b.baseAmt).toLocaleString() + " vs OTC estimate $" +
+              Math.round(otcEstTotal).toLocaleString() + " (" + (delta > 0 ? "+" : "-") + "$" + Math.abs(Math.round(delta)).toLocaleString() +
+              (delta > 0 ? " added after the contract estimate" : " below the contract estimate") + ")");
+          }
+        }
         if (o.contractEnd && o.month && FY27_monthDiff_(o.month, o.contractEnd) > 0) {
           L.flags.push("Cohort starts after contract end (" + o.contractEnd + ") - confirm contract");
         }
@@ -485,19 +525,13 @@ function FY27_buildForecast(input, cfg) {
     L.forecastMonth = b.fcMonth;
     L.baselineAmount = b.baseAmt;
     L.forecastAmount = b.baseAmt;
+    L.bookingId = b.bookingId;
     L.priorCohorts = prior;
     L.bookingType = "Rebooking (assumed)";
     L.status = "Forecast";
     L.expectation = "Expected";
-    // baseline-only rows have no cohort code: use the account history / Tableau type, not "first booking"
-    const first = history.firstByAccountGroup[b.fullId + "|" + b.group] || "";
-    if (first) {
-      L.credit = FY27_monthDiff_(b.fcMonth, first) < cfg.NEW_CREDIT_MONTHS ? "New" : "Renewal";
-      L.creditBasis = "first booked " + first;
-    } else {
-      L.credit = /new/i.test(b.nextType) ? "New" : "Renewal";
-      L.creditBasis = "Tableau booking type (no OTC history)";
-    }
+    const cr0 = creditFor(b.fullId, b.group, b.fcMonth, b);
+    L.credit = cr0.credit; L.creditBasis = cr0.basis;
     baseFlags.forEach(function (f) { L.flags.push(f); });
 
     // why is there no cohort?
@@ -545,7 +579,7 @@ function FY27_buildForecast(input, cfg) {
       productGroup: o.group, productName: o.productName,
       forecastSource: o.booked ? "OTC Actual (no baseline)" : "OTC Cohort (no baseline)",
       contractId: o.contractId, contractStart: o.contractStart, contractEnd: o.contractEnd,
-      forecastMonth: o.month, estStudents: o.estStudents, price: o.price,
+      forecastMonth: o.month, estStudents: o.estStudents, price: o.price, bookingId: o.bookingId,
       cohortNames: o.cohortName, cohortCodes: o.cohortCode,
       bookingType: o.cohortCode ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
@@ -561,8 +595,11 @@ function FY27_buildForecast(input, cfg) {
         L.flags.push("Cohort size trend-adjusted " + o.estStudents + " -> " + adj);
       }
     }
-    const cr = creditFor(o.fullId, o.group, o.cohortCode, o.month, "");
+    const cr = creditFor(o.fullId, o.group, o.month, null);
     L.credit = cr.credit; L.creditBasis = cr.basis;
+    // inherit Prior/Next booking type from the account's Tableau rows for this product group
+    const sib = (baseByAcctGroup[o.fullId + "|" + o.group] || [])[0];
+    if (sib) { L.priorBookingType = sib.priorType; L.nextBookingType = sib.nextType; }
     L.flags.push(notInTableau
       ? "Not in Tableau (no " + (year - 1) + " actuals): new account or missing bookings - verify"
       : "No matching " + (year - 1) + " baseline for this cohort - new cohort or product");
@@ -570,10 +607,22 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
   });
 
-  /* ---- 3. Apply manual overrides (keyed so they survive refreshes) ---- */
+  /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
+  const detail = lines;
+  const groups = {};
+  const order = [];
+  detail.forEach(function (d) {
+    d.forecastQuarter = FY27_quarterOf_(d.forecastMonth);
+    const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, d.expectation].join("|");
+    if (!groups[gk]) { groups[gk] = []; order.push(gk); }
+    groups[gk].push(d);
+  });
+  const grouped = order.map(function (gk) { return FY27_mergeLines_(groups[gk], makeLine); });
+
+  /* ---- 4. Apply manual overrides (keyed on the grouped line so they survive refreshes) ---- */
   const keyCount = {};
-  lines.forEach(function (L) {
-    const base = [FY27_id15_(L.fullId), L.productGroup, L.productName, L.baselineMonth || "-", L.forecastMonth, L.forecastSource].join("|");
+  grouped.forEach(function (L) {
+    const base = [FY27_id15_(L.fullId), L.studentOrgId, L.productGroup, L.forecastMonth, L.credit, L.status, L.expectation].join("|");
     keyCount[base] = (keyCount[base] || 0) + 1;
     L.key = base + "|" + keyCount[base];
   });
@@ -583,7 +632,7 @@ function FY27_buildForecast(input, cfg) {
     if (k) ovByKey[k] = r;
   });
   let overridesApplied = 0;
-  lines.forEach(function (L) {
+  grouped.forEach(function (L) {
     const ov = ovByKey[L.key];
     if (!ov) return;
     const exclude = FY27_bool_(ov["Exclude"]);
@@ -596,6 +645,7 @@ function FY27_buildForecast(input, cfg) {
     if (mo) { L.forecastMonth = mo; L.flags.push("Manual override: month"); }
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
+  lines = grouped;
 
   lines.forEach(function (L) { L.forecastQuarter = FY27_quarterOf_(L.forecastMonth); });
   lines.sort(function (a, b) {
@@ -630,12 +680,14 @@ function FY27_buildForecast(input, cfg) {
 
   return {
     lines: lines,
+    detail: detail,
     review: review,
     writeback: writeback,
     coverage: Object.keys(cov).sort().map(function (k) { return cov[k]; }),
     stats: {
       actualsThrough: actualsThrough,
       lines: lines.length,
+      detailLines: detail.length,
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,
       overridesApplied: overridesApplied,
@@ -644,12 +696,59 @@ function FY27_buildForecast(input, cfg) {
   };
 }
 
+/** Collapse detail lines that share a group key into one forecast row. */
+function FY27_mergeLines_(parts, makeLine) {
+  const first = parts[0];
+  const L = makeLine(first);
+  const join = function (f) { return FY27_uniqJoin_(parts.map(function (p) { return p[f]; })); };
+  const sum = function (f) { return FY27_round2_(parts.reduce(function (t, p) { return t + (Number(p[f]) || 0); }, 0)); };
+  L.productName = join("productName");
+  L.forecastSource = join("forecastSource");
+  L.bookingId = join("bookingId");
+  L.contractId = join("contractId");
+  L.cohortNames = join("cohortNames");
+  L.cohortCodes = join("cohortCodes");
+  L.priorCohorts = join("priorCohorts");
+  L.creditBasis = join("creditBasis");
+  L.priorBookingType = join("priorBookingType");
+  L.nextBookingType = join("nextBookingType");
+  L.baselineAmount = sum("baselineAmount");
+  L.valueIfBooked = sum("valueIfBooked");
+  L.forecastAmount = sum("forecastAmount");
+  L.estStudents = parts.some(function (p) { return p.estStudents !== ""; }) ? sum("estStudents") : "";
+  L.adjStudents = parts.some(function (p) { return p.adjStudents !== ""; })
+    ? FY27_round2_(parts.reduce(function (t, p) { return t + (p.adjStudents !== "" ? Number(p.adjStudents) : (Number(p.estStudents) || 0)); }, 0)) : "";
+  L.adjVariance = parts.some(function (p) { return p.adjVariance !== ""; }) ? sum("adjVariance") : "";
+  const prices = {}; parts.forEach(function (p) { if (p.price !== "") prices[p.price] = true; });
+  const pk = Object.keys(prices);
+  L.price = pk.length === 1 ? Number(pk[0]) : "";
+  const bm = parts.map(function (p) { return p.baselineMonth; }).filter(Boolean).sort();
+  L.baselineMonth = bm.length ? bm[0] : "";
+  const cs = parts.map(function (p) { return p.contractStart; }).filter(Boolean).sort();
+  const ce = parts.map(function (p) { return p.contractEnd; }).filter(Boolean).sort();
+  L.contractStart = cs.length ? cs[0] : "";
+  L.contractEnd = ce.length ? ce[ce.length - 1] : "";
+  L.adjustment = parts.some(function (p) { return p.adjustment === "TRUE"; }) ? "TRUE" : first.adjustment;
+  const types = {}; parts.forEach(function (p) { types[p.bookingType] = true; });
+  const hasRebook = types["Rebooking"] || types["Rebooking (assumed)"] || types["Mix"];
+  const hasRoster = types["Roster Chasing"] || types["Mix"];
+  L.bookingType = hasRebook && hasRoster ? "Mix" : Object.keys(types).length === 1 ? first.bookingType
+    : types["Rebooking"] ? "Rebooking" : first.bookingType;
+  const flags = [];
+  parts.forEach(function (p) { p.flags.forEach(function (f) { if (flags.indexOf(f) < 0) flags.push(f); }); });
+  L.flags = flags;
+  L.forecastQuarter = first.forecastQuarter;
+  L.detailCount = parts.length;
+  return L;
+}
+
 function FY27_severity_(flag) {
   const f = flag.toLowerCase();
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
       f.indexOf("no upcoming cohort") >= 0 || f.indexOf("no otc contract") >= 0) return "High";
   if (f.indexOf("not complete yet") >= 0 || f.indexOf("no matching") >= 0 || f.indexOf("after contract end") >= 0 ||
-      f.indexOf("positive adjustment") >= 0) return "Medium";
+      f.indexOf("positive adjustment") >= 0 ||
+      f.indexOf("adjustment: baseline") >= 0) return "Medium";
   return "Low";
 }
 

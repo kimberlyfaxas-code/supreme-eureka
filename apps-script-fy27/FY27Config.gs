@@ -15,7 +15,8 @@ const FY27_CFG = {
     SALESFORCE: "Salesforce Data - KF-2026-11-09-10-27-24",
     SALESFORCE_PREFIX: "Salesforce Data",
     // Outputs
-    FORECAST: "Forecast",
+    FORECAST: "Forecast",            // grouped: account x product group x month x credit type
+    DETAIL: "Forecast Detail",       // ungrouped (one row per OTC cohort / baseline line) for tracing
     REVIEW: "Forecast Review",
     OVERRIDES: "Forecast Overrides"
   },

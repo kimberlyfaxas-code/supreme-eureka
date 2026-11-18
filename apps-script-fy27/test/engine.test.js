@@ -23,7 +23,7 @@ const otc = (o) => Object.assign({
   "cohort_name": "RN Feb", "Cohort Code (if present, then this is a rebooking)": "", "cohort_dne_flag": "FALSE",
   "order_estimated_start_date": "2027-02-01", "order_actual_start_date": "", "Estimated # of Students": "10",
   "order_enrollment_final": "", "Price Per Student": "100", "Estimated or Actual Order Total": "1000", "order_status": "Roster",
-  "Product Name": "RN Complete", "Product Group": "NURSING COURSE"
+  "Product Name": "RN Complete", "Product Group": "NURSING COURSE", "booking_id": ""
 }, o);
 
 const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesforce: sf || [], overrides: ov || [], now: new Date(2026, 10, 18) }, CFG);
@@ -53,7 +53,7 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
     [tab({ "FULL ID": "0014u000025P7Y7AAK", "Rating": rating })],
     [otc({ "Full ID": "0014u000025P7Y7AAK" })]);
   assert.strictEqual(mk("Green").lines[0].bookingType, "Roster Chasing");
-  assert.strictEqual(mk("Green").lines[0].credit, "New");
+  assert.strictEqual(mk("Green").lines[0].credit, "Renewal");   // Tableau col U says Renewal
   assert.strictEqual(mk("Green").lines[0].forecastAmount, 1000);
   assert.strictEqual(mk("Gray").lines[0].forecastAmount, 0);
   assert.strictEqual(mk("Gray").lines[0].expectation, "Not Expected");
@@ -170,5 +170,76 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   const g = E.FY27_gridToRows_([["A", "Forecast Amount", "Forecast Amount"], [1, 5, 0]]);
   assert.strictEqual(g.rows[0]["Forecast Amount"], 5);
   assert.strictEqual(g.rows[0]["Forecast Amount__2"], 0);
+}
+
+// 14. Aims-style: two cohorts in different months + baseline -> grouped by product group + month,
+//     baseline sits on its own forecast month, adjustment variance flagged, credit from col U, booking_id from OTC,
+//     cohort names that Sheets turned into Dates read "May 2028".
+{
+  const F = "0014u000025P6kx";
+  const t = [tab({ "FULL ID": F, "Baseline Amount - Tableau": "9585", "Forecast Month - Tableau": "2/1/2027", "Baseline Booking Month - Tableau": "2/1/2026" })];
+  const o = [
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-01-01", "Estimated or Actual Order Total": "5040", "Estimated # of Students": "28", "booking_id": "PO-1", "cohort_name": new Date(2028, 4, 1), "Cohort Code (if present, then this is a rebooking)": "A1" }),
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "2160", "Estimated # of Students": "12", "booking_id": "PO-2", "cohort_name": "May 2027 LPN to RN", "Cohort Code (if present, then this is a rebooking)": "A2" }),
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1980", "Estimated # of Students": "11", "booking_id": "PO-3", "cohort_name": "Aug 2027", "Cohort Code (if present, then this is a rebooking)": "A3" }),
+    // PN line with no baseline: inherits renewal credit from the account's Tableau rows
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-06-01", "Estimated or Actual Order Total": "1500", "Product Name": "NCLEX PN Enrichment", "cohort_name": "Aug 2027 PN" })
+  ];
+  const r = run(t, o);
+  const rn = r.lines.filter((l) => l.productGroup === "NURSING COURSE" && l.forecastSource.indexOf("no baseline") < 0);
+  assert.strictEqual(rn.length, 2, "Jan + Feb groups");
+  const feb = rn.find((l) => l.forecastMonth === "2027-02");
+  const jan = rn.find((l) => l.forecastMonth === "2027-01");
+  assert.strictEqual(feb.forecastAmount, 4140);      // two Feb cohorts combined
+  assert.strictEqual(feb.baselineAmount, 9585);      // baseline lands on its own month
+  assert.strictEqual(jan.baselineAmount, 0);
+  assert.strictEqual(feb.detailCount, 2);
+  assert.ok(feb.bookingId.indexOf("PO-2") >= 0 && feb.bookingId.indexOf("PO-3") >= 0);
+  assert.ok(jan.cohortNames === "May 2028", jan.cohortNames);
+  assert.ok(feb.flags.some((f) => f.indexOf("Adjustment: baseline $9,585 vs OTC estimate $9,180 (+$405") === 0), JSON.stringify(feb.flags));
+  assert.strictEqual(r.detail.length, 4);
+  const sum = (a) => a.reduce((s, l) => s + l.forecastAmount, 0);
+  assert.strictEqual(sum(r.lines), sum(r.detail), "grouping must not change totals");
+  const pn = r.lines.find((l) => l.productName === "NCLEX PN Enrichment");
+  assert.strictEqual(pn.credit, "Renewal");
+  assert.strictEqual(pn.nextBookingType, "Renewal");
+}
+
+// 15. Variance flag text + sign: baseline above OTC estimate
+{
+  const F = "0014u000025VARIANCE";
+  const r = run([tab({ "FULL ID": F, "Baseline Amount - Tableau": "9585" })], [otc({ "Full ID": F, "Estimated or Actual Order Total": "9180", "order_estimated_start_date": "2027-02-01" })]);
+  assert.ok(r.lines[0].flags.some((f) => f.indexOf("Adjustment: baseline $9,585 vs OTC estimate $9,180 (+$405") === 0), JSON.stringify(r.lines[0].flags));
+  assert.strictEqual(r.lines[0].adjVariance, 405);
+}
+
+// 16. "Renewal" must never be read as a New type (regression: /new/ matched Re-new-al)
+{
+  const r = run([tab({ "FULL ID": "0014u000025REGRESS", "Next Booking Type": "Renewal", "Prior Booking Type": "New Logo" })], []);
+  assert.strictEqual(r.lines[0].credit, "Renewal");
+  const n = run([tab({ "FULL ID": "0014u000025REGRESS", "Next Booking Type": "New Logo" })], []);
+  assert.strictEqual(n.lines[0].credit, "New");
+}
+
+// 17. Product group never in Tableau: 12-month rule from first OTC booking
+{
+  const F = "0014u000025NEWGRP";
+  const done = otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_status": "Complete", "order_actual_start_date": "2026-09-01", "order_estimated_start_date": "2026-09-01" });
+  const within = otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_estimated_start_date": "2027-03-01" });
+  const after = otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_estimated_start_date": "2027-10-01" });
+  const r = run([], [done, within, after]);
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-03").credit, "New");
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-10").credit, "Renewal");
+  assert.ok(/12-month rule/.test(r.lines[0].creditBasis));
+}
+
+// 18. Different credit types in one group-month stay separate rows
+{
+  const F = "0014u000025SPLIT";
+  const r = run([], [
+    otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_status": "Complete", "order_actual_start_date": "2026-09-01", "order_estimated_start_date": "2026-09-01" }),
+    otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_estimated_start_date": "2027-03-01" })
+  ]);
+  assert.strictEqual(r.lines.length, 1);
 }
 console.log("all engine tests passed");

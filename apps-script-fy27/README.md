@@ -17,7 +17,7 @@ November/December and then 2027 bookings land. Orders OTC marks Complete become 
 everything else stays **Forecast / Expected**.
 
 ## What it produces
-`Forecast` tab, one row per forecast line (account x product x cohort/month), with the same account
+`Forecast` tab, one row per account x product group x month x credit type (`Forecast Detail` keeps the ungrouped lines), with the same account
 fields as the FY2026 working forecast plus: Forecast Month/Quarter, Baseline Amount, Value If Booked,
 Forecast Amount, cohort names/codes, 2027 Booking Type (Rebooking / Roster Chasing / Mix), Credit Type
 (New / Renewal), Status (Booked / Forecast), Forecast Category (Captured / Expected / Not Expected),
