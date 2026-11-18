@@ -132,10 +132,13 @@ function FY27_monthToDate_(key) {
 function FY27_writeForecast_(ss, lines, name) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear();
-  const headers = FY27_FORECAST_COLUMNS.map(function (c) { return c[0]; });
+  const cols = FY27_FORECAST_COLUMNS.filter(function (c) {
+    return FY27_CFG.TAG_CREDIT || (c[1] !== "credit" && c[1] !== "creditBasis");
+  });
+  const headers = cols.map(function (c) { return c[0]; });
   const out = [headers];
   lines.forEach(function (L) {
-    out.push(FY27_FORECAST_COLUMNS.map(function (c) {
+    out.push(cols.map(function (c) {
       const v = L[c[1]], kind = c[2];
       if (kind === "month") return FY27_monthToDate_(v);
       if (kind === "flags") return (v || []).join(" | ");
@@ -146,7 +149,7 @@ function FY27_writeForecast_(ss, lines, name) {
   // formats
   sh.setFrozenRows(1);
   sh.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#E7EDF6");
-  FY27_FORECAST_COLUMNS.forEach(function (c, i) {
+  cols.forEach(function (c, i) {
     if (out.length < 2) return;
     const rng = sh.getRange(2, i + 1, out.length - 1, 1);
     if (c[2] === "month") rng.setNumberFormat("mmm-yy");

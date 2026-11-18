@@ -38,7 +38,8 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   baseline-year actuals: if OTC cohorts starting in month M total more than Tableau's month-M amount and later Tableau rows
   (months with no OTC cohort start) close the gap exactly, those rows are added students, not recurring bookings, and forecast $0.
 - Cohort-size trend: estimate x (history final/estimate) when >= 2 completed orders and the gap is >= 10%.
-- Credit (account + product group): lines tied to a Tableau baseline row take Tableau col U (normally Renewal). OTC cohorts with no baseline line at an account that IS in Tableau are included as New sales credit (and show "Cohort not in baseline" in Credit Basis). Product groups never in Tableau use the 12-month rule.
+- New vs Renewal credit is OFF (`TAG_CREDIT: false`): Credit Type / Credit Basis columns are omitted and do not split rows. The
+  code is kept for later: credit would be set per product group, 12 months after its first new sale.
 - Accounts with no Tableau rows are left out (counted on the Review tab; `INCLUDE_NOT_IN_TABLEAU` brings them back).
 - Flags: contract covers the year but no upcoming cohort (CE Hub case), contract ended/expiring before the
   forecast month, no OTC data, not in Tableau, baseline month still incomplete, cohort after contract end.

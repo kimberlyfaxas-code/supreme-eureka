@@ -7,6 +7,7 @@ const cfgSrc = fs.readFileSync(path.join(__dirname, "../FY27Config.gs"), "utf8")
 const engSrc = fs.readFileSync(path.join(__dirname, "../FY27Engine.gs"), "utf8");
 const E = (function () { const module = { exports: {} }; new Function("module", engSrc)(module); return module.exports; })();
 const CFG = new Function(cfgSrc + "; return FY27_CFG;")();
+CFG.TAG_CREDIT = true;   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
 
 const tab = (o) => Object.assign({
@@ -320,4 +321,25 @@ CFG.INCLUDE_NOT_IN_TABLEAU = true;
   assert.ok(r.lines.length >= 1);
 }
 CFG.INCLUDE_NOT_IN_TABLEAU = false;
+
+// 21. OTC "Curriculum Plus" with program NCLEX RN counts as RN, so a PN cohort is NOT covered by RN bookings
+{
+  const F = "0014u000025PROGFAM";
+  const r = run(
+    [tab({ "FULL ID": F, "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })],
+    [otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Product Name": "Curriculum Plus", "program": "NCLEX RN" }),
+     otc({ "Full ID": F, "order_estimated_start_date": "2027-08-01", "Product Name": "NCLEX PN Enrichment/Inst 4 Month", "program": "NCLEX PN", "cohort_name": "Aug 2027 PN" })]);
+  const pn = r.lines.find((l) => l.forecastMonth === "2027-08");
+  assert.strictEqual(pn.expectation, "Not Expected");
+  assert.strictEqual(pn.forecastAmount, 0);
+}
+// 22. Credit off: no credit values, and rows are not split by it
+{
+  CFG.TAG_CREDIT = false;
+  const F = "0014u000025NOCREDIT";
+  const r = run([tab({ "FULL ID": F })], [otc({ "Full ID": F })]);
+  assert.strictEqual(r.lines[0].credit, "");
+  assert.strictEqual(r.lines[0].creditBasis, "");
+  CFG.TAG_CREDIT = true;
+}
 console.log("all engine tests passed");

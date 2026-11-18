@@ -46,6 +46,10 @@ const FY27_CFG = {
   // Set true to bring their OTC cohorts in, flagged "Not in Tableau".
   INCLUDE_NOT_IN_TABLEAU: false,
 
+  // New vs Renewal sales credit. Off for now: Credit Type / Credit Basis are left out of the output
+  // and do not split rows. Turn on later to tag them (see README for the rules).
+  TAG_CREDIT: false,
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

@@ -144,6 +144,12 @@ function FY27_family_(group, name) {
   if (g.indexOf("IHUMAN") >= 0) return "iHuman";
   return "Other";
 }
+/** OTC product names are often just "Curriculum Plus"; the program ("NCLEX RN") and cohort name say RN vs PN. */
+function FY27_otcFamily_(group, productName, program, cohortName) {
+  let f = FY27_family_(group, productName + " " + program);
+  if (f === "Other") f = FY27_family_(group, cohortName);
+  return f;
+}
 function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
@@ -164,7 +170,7 @@ function FY27_normOtc_(r, cfg) {
     accountName: FY27_str_(r["Account Name"]),
     group: group,
     productName: pname,
-    family: FY27_family_(group, pname),
+    family: FY27_otcFamily_(group, pname, FY27_str_(FY27_pick_(r, ["program", "opportunity_program"])), FY27_str_(r["cohort_name"])),
     bookingId: FY27_str_(FY27_pick_(r, ["booking_id"])),
     contractId: FY27_str_(FY27_pick_(r, ["Contract ID", "contract_id"])),
     contractStart: FY27_monthKey_(FY27_pick_(r, ["Contract Start Date", "contract_start_date"])),
@@ -649,6 +655,7 @@ function FY27_buildForecast(input, cfg) {
   });
 
   /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
+  if (!cfg.TAG_CREDIT) lines.forEach(function (d) { d.credit = ""; d.creditBasis = ""; });
   const detail = lines;
   const groups = {};
   const order = [];
