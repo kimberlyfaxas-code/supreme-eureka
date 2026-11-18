@@ -622,11 +622,13 @@ function FY27_buildForecast(input, cfg) {
         L.flags.push("Cohort size trend-adjusted " + o.estStudents + " -> " + adj);
       }
     }
-    const cr = creditFor(o.fullId, o.group, o.month, null);
-    L.credit = cr.credit; L.creditBasis = cr.basis;
-    // inherit Prior/Next booking type from the account's Tableau rows for this product group
-    const sib = (baseByAcctGroup[o.fullId + "|" + o.group] || [])[0];
-    if (sib) { L.priorBookingType = sib.priorType; L.nextBookingType = sib.nextType; }
+    if (notInTableau) {
+      const cr = creditFor(o.fullId, o.group, o.month, null);
+      L.credit = cr.credit; L.creditBasis = cr.basis;
+    } else {
+      // account is in Tableau but this cohort has no baseline line: incremental, so new sales credit
+      L.credit = "New"; L.creditBasis = "Cohort not in " + (year - 1) + " baseline: new sales credit";
+    }
     L.flags.push(notInTableau
       ? "Not in Tableau (no " + (year - 1) + " actuals): new account or missing bookings - verify"
       : "No matching " + (year - 1) + " baseline for this cohort - new cohort or product");

@@ -211,8 +211,8 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   const sum = (a) => a.reduce((s, l) => s + l.forecastAmount, 0);
   assert.strictEqual(sum(r.lines), sum(r.detail), "grouping must not change totals");
   const pn = r.lines.find((l) => l.productName === "NCLEX PN Enrichment");
-  assert.strictEqual(pn.credit, "Renewal");
-  assert.strictEqual(pn.nextBookingType, "Renewal");
+  assert.strictEqual(pn.credit, "New");   // in Tableau, but cohort has no baseline line -> new sales credit
+  assert.ok(/new sales credit/.test(pn.creditBasis));
   // PN program did not book in 2026 (only RN did) -> not forecast, value kept
   assert.strictEqual(pn.expectation, "Not Expected");
   assert.strictEqual(pn.forecastAmount, 0);
@@ -259,6 +259,20 @@ CFG.INCLUDE_NOT_IN_TABLEAU = true;
     otc({ "Full ID": F, "Product Group": "MED COURSE", "Product Name": "Step 1", "order_estimated_start_date": "2027-03-01" })
   ]);
   assert.strictEqual(r.lines.length, 1);
+}
+
+// 19a. In-Tableau account, extra cohort in an ACTIVE program with no baseline line -> included, New credit
+{
+  const F = "0014u000025EXTRA";
+  const r = run(
+    [tab({ "FULL ID": F, "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })],
+    [otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01" }),
+     otc({ "Full ID": F, "order_estimated_start_date": "2027-09-01", "Estimated or Actual Order Total": "800" })]);
+  const sep = r.lines.find((l) => l.forecastMonth === "2027-09");
+  assert.strictEqual(sep.forecastAmount, 800);
+  assert.strictEqual(sep.expectation, "Expected");
+  assert.strictEqual(sep.credit, "New");
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-02").credit, "Renewal");
 }
 
 // 19. Program booked last year (Tableau PN baseline) and has an OTC PN cohort -> still forecast;

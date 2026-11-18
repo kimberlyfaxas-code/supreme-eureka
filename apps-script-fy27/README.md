@@ -36,7 +36,7 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Rating: Gray drops roster-chasing lines (rebookings only); Black zeroes the client (Value If Booked is kept).
 - Positive adjustments are tagged Not Expected.
 - Cohort-size trend: estimate x (history final/estimate) when >= 2 completed orders and the gap is >= 10%.
-- Credit: first 12 months after a cohort's first booking = New, afterwards Renewal; never-booked cohorts = New.
+- Credit (account + product group): lines tied to a Tableau baseline row take Tableau col U (normally Renewal). OTC cohorts with no baseline line at an account that IS in Tableau are included as New sales credit (and show "Cohort not in baseline" in Credit Basis). Product groups never in Tableau use the 12-month rule.
 - Accounts with no Tableau rows are left out (counted on the Review tab; `INCLUDE_NOT_IN_TABLEAU` brings them back).
 - Flags: contract covers the year but no upcoming cohort (CE Hub case), contract ended/expiring before the
   forecast month, no OTC data, not in Tableau, baseline month still incomplete, cohort after contract end.
