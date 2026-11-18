@@ -164,7 +164,7 @@ function FY27_writeReview_(ss, result) {
     ["FY" + FY27_CFG.FORECAST_YEAR + " forecast build - review", "", "", "", "", ""],
     ["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1), "", ""],
     ["Forecast lines", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched],
-    ["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "", ""],
+    ["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments],
     ["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value],
     ["", "", "", "", "", ""],
     ["Month coverage", "Booked $", "Forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]

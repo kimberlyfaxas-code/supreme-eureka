@@ -261,6 +261,38 @@ CFG.INCLUDE_NOT_IN_TABLEAU = true;
   assert.strictEqual(r.lines.length, 1);
 }
 
+// 20. Aims: OTC 2026 actuals (3 cohorts starting 2026-02, $9,765) = Tableau Feb $9,585 + Mar $180
+//     -> the Mar $180 is an added student, not recurring: forecast 0, flagged, value kept
+{
+  const F = "0014u000025AIMSADJ";
+  const done = (total, students, price) => otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": String(total), "Estimated # of Students": String(students), "order_enrollment_final": String(students), "Price Per Student": String(price), "Product Name": "Curriculum Plus" });
+  const t = [
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "9585", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }),
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "180", "Baseline Booking Month - Tableau": "3/1/2026", "Forecast Month - Tableau": "3/1/2027" })
+  ];
+  const r = run(t, [done(2145, 13, 165), done(3300, 20, 165), done(4320, 24, 180)]);
+  assert.strictEqual(r.stats.derivedAdjustments, 1);
+  const mar = r.lines.find((l) => l.forecastMonth === "2027-03");
+  assert.strictEqual(mar.forecastAmount, 0);
+  assert.strictEqual(mar.valueIfBooked, 180);
+  assert.strictEqual(mar.expectation, "Not Expected");
+  assert.strictEqual(mar.adjustment, "TRUE");
+  assert.ok(mar.flags.some((f) => /^Adjustment \(derived\): \$180 booked 2026-03/.test(f)), JSON.stringify(mar.flags));
+  const feb = r.lines.find((l) => l.forecastMonth === "2027-02");
+  assert.strictEqual(feb.forecastAmount, 9585);   // Feb stays recurring (baseline-only here: no 2027 cohorts yet)
+}
+// 20b. Amount that does NOT reconcile with OTC stays a normal recurring booking
+{
+  const F = "0014u000025NOADJ";
+  const done = otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": "9765" });
+  const r = run([
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "9585", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }),
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "200", "Baseline Booking Month - Tableau": "3/1/2026", "Forecast Month - Tableau": "3/1/2027" })
+  ], [done]);
+  assert.strictEqual(r.stats.derivedAdjustments, 0);
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-03").forecastAmount, 200);
+}
+
 // 19a. In-Tableau account, extra cohort in an ACTIVE program with no baseline line -> included, New credit
 {
   const F = "0014u000025EXTRA";

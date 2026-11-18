@@ -34,7 +34,9 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
   missing from Tableau entirely are exempt and flagged instead.
 - Rating: Gray drops roster-chasing lines (rebookings only); Black zeroes the client (Value If Booked is kept).
-- Positive adjustments are tagged Not Expected.
+- Positive adjustments are tagged Not Expected. Adjustments are also derived by reconciling Tableau baseline-year bookings with OTC
+  baseline-year actuals: if OTC cohorts starting in month M total more than Tableau's month-M amount and later Tableau rows
+  (months with no OTC cohort start) close the gap exactly, those rows are added students, not recurring bookings, and forecast $0.
 - Cohort-size trend: estimate x (history final/estimate) when >= 2 completed orders and the gap is >= 10%.
 - Credit (account + product group): lines tied to a Tableau baseline row take Tableau col U (normally Renewal). OTC cohorts with no baseline line at an account that IS in Tableau are included as New sales credit (and show "Cohort not in baseline" in Credit Basis). Product groups never in Tableau use the 12-month rule.
 - Accounts with no Tableau rows are left out (counted on the Review tab; `INCLUDE_NOT_IN_TABLEAU` brings them back).

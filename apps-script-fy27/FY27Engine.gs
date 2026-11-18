@@ -275,6 +275,10 @@ function FY27_buildForecast(input, cfg) {
     if (s.fullId && !sfById[s.fullId]) sfById[s.fullId] = s.attrs;
   });
 
+  // Reconcile Tableau baseline-year bookings with OTC baseline-year actuals to find adjustments
+  // (extra students added after a cohort started) - those must not recur.
+  const derivedAdj = FY27_deriveAdjustments_(base, otcAll, year - 1);
+
   const history = FY27_buildHistory_(otcAll, cfg);
 
   // Index OTC by account
@@ -560,7 +564,7 @@ function FY27_buildForecast(input, cfg) {
     if (b.isBOS) {
       L.flags.push("BOS billing ID - not in OTC; forecast from baseline only");
     } else if (b.isAdj) {
-      // handled below
+      if (b.adjReason) L.flags.push(b.adjReason);
     } else if (!otcByAcct[b.fullId]) {
       L.flags.push("No OTC data for this Full ID - check contract / roster");
     } else if (!cEnd) {
@@ -725,6 +729,7 @@ function FY27_buildForecast(input, cfg) {
       actualsThrough: actualsThrough,
       lines: lines.length,
       detailLines: detail.length,
+      derivedAdjustments: derivedAdj,
       excludedNotInTableau: { accounts: Object.keys(excluded.accounts).length, cohorts: excluded.cohorts, value: excluded.value },
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,
@@ -732,6 +737,74 @@ function FY27_buildForecast(input, cfg) {
       total: lines.reduce(function (s, L) { return s + L.forecastAmount; }, 0)
     }
   };
+}
+
+/**
+ * Derive adjustments by comparing Tableau baseline-year bookings with OTC baseline-year actuals.
+ *
+ * Example (Aims RN): OTC Complete cohorts starting 2026-02 total $9,765. Tableau shows $9,585 in Feb and
+ * $180 in Mar. 9,585 + 180 = 9,765, so the Mar $180 is an extra student added to the Feb cohort - an
+ * adjustment, not a recurring booking.
+ *
+ * Per account + product group + Tableau family: for every month where OTC cohorts started ("anchor"),
+ * if Tableau's amount for that month is short of the OTC total, look for a set of later Tableau rows (in months
+ * where no OTC cohort started) that closes the gap exactly. Those rows are marked as adjustments.
+ * Exact-sum matching keeps false positives low. Mutates the baseline row objects; returns a count.
+ */
+function FY27_deriveAdjustments_(base, otcAll, baseYear) {
+  let found = 0;
+  const byAcct = {};
+  base.forEach(function (b) {
+    if (!b.fullId || b.isBOS || b.isAdj || !b.baseMonth || b.baseAmt <= 0 || FY27_yearOf_(b.baseMonth) !== baseYear) return;
+    const k = b.fullId + "|" + b.group + "|" + b.family;
+    (byAcct[k] = byAcct[k] || []).push(b);
+  });
+  const otcByGroup = {};
+  otcAll.forEach(function (o) {
+    if (o.dne || !o.booked || !o.actStart || FY27_yearOf_(o.actStart) !== baseYear) return;
+    (otcByGroup[o.fullId + "|" + o.group] = otcByGroup[o.fullId + "|" + o.group] || []).push(o);
+  });
+  Object.keys(byAcct).forEach(function (k) {
+    const rows = byAcct[k];
+    const parts = k.split("|");
+    const fam = parts[2];
+    const orders = (otcByGroup[parts[0] + "|" + parts[1]] || []).filter(function (o) { return FY27_familiesCompatible_(fam, o.family); });
+    if (!orders.length) return;
+    const otcByMonth = {};
+    orders.forEach(function (o) { otcByMonth[o.actStart] = (otcByMonth[o.actStart] || 0) + o.total; });
+    const anchors = Object.keys(otcByMonth).sort();
+    const claimed = {};
+    anchors.forEach(function (m) {
+      const S = otcByMonth[m];
+      let have = 0;
+      rows.forEach(function (b) { if (b.baseMonth === m && !claimed[b.row]) have += b.baseAmt; });
+      const gap = FY27_round2_(S - have);
+      const tol = Math.max(1, S * 0.002);
+      if (have <= 0 || gap <= tol) return;
+      const cands = rows.filter(function (b) {
+        return !claimed[b.row] && !otcByMonth[b.baseMonth] &&
+          FY27_monthDiff_(b.baseMonth, m) > 0 && FY27_monthDiff_(b.baseMonth, m) <= 12;
+      }).sort(function (x, y) { return x.baseMonth < y.baseMonth ? -1 : x.baseMonth > y.baseMonth ? 1 : 0; }).slice(0, 12);
+      let best = null;
+      for (let mask = 1; mask < (1 << cands.length); mask++) {
+        let sum = 0, cnt = 0;
+        for (let i = 0; i < cands.length; i++) if (mask & (1 << i)) { sum += cands[i].baseAmt; cnt++; }
+        if (Math.abs(sum - gap) <= tol && (!best || cnt < best.cnt)) best = { mask: mask, cnt: cnt };
+      }
+      if (!best) return;
+      for (let i = 0; i < cands.length; i++) {
+        if (!(best.mask & (1 << i))) continue;
+        const b = cands[i];
+        claimed[b.row] = true;
+        b.isAdj = true;
+        b.adjReason = "Adjustment (derived): $" + Math.round(b.baseAmt).toLocaleString() + " booked " + b.baseMonth +
+          " is extra students on the cohort that started " + m + " (OTC " + baseYear + " actuals $" + Math.round(S).toLocaleString() +
+          " = Tableau " + m + " $" + Math.round(have).toLocaleString() + " + later adjustments). Not recurring, forecast $0";
+        found++;
+      }
+    });
+  });
+  return found;
 }
 
 /** Collapse detail lines that share a group key into one forecast row. */
@@ -785,7 +858,7 @@ function FY27_severity_(flag) {
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
       f.indexOf("no upcoming cohort") >= 0 || f.indexOf("no otc contract") >= 0) return "High";
   if (f.indexOf("not complete yet") >= 0 || f.indexOf("no matching") >= 0 || f.indexOf("after contract end") >= 0 ||
-      f.indexOf("positive adjustment") >= 0 || f.indexOf("booking for this program") >= 0 ||
+      f.indexOf("positive adjustment") >= 0 || f.indexOf("adjustment (derived)") >= 0 || f.indexOf("booking for this program") >= 0 ||
       f.indexOf("adjustment: baseline") >= 0) return "Medium";
   return "Low";
 }
