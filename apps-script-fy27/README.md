@@ -37,6 +37,7 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Positive adjustments are tagged Not Expected.
 - Cohort-size trend: estimate x (history final/estimate) when >= 2 completed orders and the gap is >= 10%.
 - Credit: first 12 months after a cohort's first booking = New, afterwards Renewal; never-booked cohorts = New.
+- Accounts with no Tableau rows are left out (counted on the Review tab; `INCLUDE_NOT_IN_TABLEAU` brings them back).
 - Flags: contract covers the year but no upcoming cohort (CE Hub case), contract ended/expiring before the
   forecast month, no OTC data, not in Tableau, baseline month still incomplete, cohort after contract end.
 

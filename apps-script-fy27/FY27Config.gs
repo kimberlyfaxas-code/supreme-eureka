@@ -42,6 +42,10 @@ const FY27_CFG = {
   // not in Tableau at all are exempt: those are flagged for review instead.
   EXCLUDE_UNBOOKED_PROGRAMS: true,
 
+  // Accounts with no Tableau rows (no baseline-year bookings) are left out of the forecast.
+  // Set true to bring their OTC cohorts in, flagged "Not in Tableau".
+  INCLUDE_NOT_IN_TABLEAU: false,
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

@@ -120,7 +120,15 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   assert.strictEqual(r.lines[0].valueIfBooked, 250);
 }
 
-// 8. OTC-only account (not in Tableau) -> pulled from Salesforce, flagged
+// 8. Account not in Tableau is left out by default, and counted
+{
+  const r = run([], [otc({ "Full ID": "001NEWACCT00001AA" })]);
+  assert.strictEqual(r.lines.length, 0);
+  assert.strictEqual(r.stats.excludedNotInTableau.accounts, 1);
+  assert.strictEqual(r.stats.excludedNotInTableau.value, 1000);
+}
+// 8b. ...unless INCLUDE_NOT_IN_TABLEAU is on: then it is pulled from Salesforce and flagged
+CFG.INCLUDE_NOT_IN_TABLEAU = true;
 {
   const r = run([], [otc({ "Full ID": "001NEWACCT00001AA" })], [{ "FULL ID": "001NEWACCT00001AA", "Account Name": "New U", "Client Success Manager": "Pat", "Rating": "Green", "Student Org Id": "001ORG" }]);
   assert.strictEqual(r.lines.length, 1);
@@ -129,6 +137,8 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   assert.ok(r.lines[0].flags.some((f) => /Not in Tableau/.test(f)));
   assert.strictEqual(r.review[0].severity, "High");
 }
+
+CFG.INCLUDE_NOT_IN_TABLEAU = false;
 
 // 9. Trend adjustment: history finals 20% under estimates -> 10 students become 8
 {
@@ -228,6 +238,7 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   assert.strictEqual(n.lines[0].credit, "New");
 }
 
+CFG.INCLUDE_NOT_IN_TABLEAU = true;
 // 17. Product group never in Tableau: 12-month rule from first OTC booking
 {
   const F = "0014u000025NEWGRP";
@@ -262,4 +273,5 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
   assert.strictEqual(may.expectation, "Expected");
   assert.ok(r.lines.length >= 1);
 }
+CFG.INCLUDE_NOT_IN_TABLEAU = false;
 console.log("all engine tests passed");

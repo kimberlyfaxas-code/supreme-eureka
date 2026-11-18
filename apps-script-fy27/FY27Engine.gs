@@ -579,10 +579,15 @@ function FY27_buildForecast(input, cfg) {
   });
 
   /* ---- 2. OTC cohorts with no baseline match -> own lines ---- */
+  const excluded = { cohorts: 0, value: 0, accounts: {} };
   target.forEach(function (o) {
     if (usedOtc[o.row]) return;
     const sf = sfAttrs(o.fullId);
     const notInTableau = !tableauIds[o.fullId];
+    if (notInTableau && !cfg.INCLUDE_NOT_IN_TABLEAU) {
+      excluded.cohorts++; excluded.value += o.total; excluded.accounts[o.fullId] = true;
+      return;
+    }
     const L = makeLine({
       accountNameWithOrg: (sf["Account Name"] || o.accountName) + (sf["Student Org Id"] ? " (" + sf["Student Org Id"] + ")" : ""),
       studentOrgId: FY27_str_(sf["Student Org Id"]),
@@ -718,6 +723,7 @@ function FY27_buildForecast(input, cfg) {
       actualsThrough: actualsThrough,
       lines: lines.length,
       detailLines: detail.length,
+      excludedNotInTableau: { accounts: Object.keys(excluded.accounts).length, cohorts: excluded.cohorts, value: excluded.value },
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,
       overridesApplied: overridesApplied,

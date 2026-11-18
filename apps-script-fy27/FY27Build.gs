@@ -165,6 +165,7 @@ function FY27_writeReview_(ss, result) {
     ["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1), "", ""],
     ["Forecast lines", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched],
     ["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "", ""],
+    ["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value],
     ["", "", "", "", "", ""],
     ["Month coverage", "Booked $", "Forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]
   ];
@@ -181,11 +182,12 @@ function FY27_writeReview_(ss, result) {
   rows.forEach(function (r) { while (r.length < width) r.push(""); });
   sh.getRange(1, 1, rows.length, width).setValues(rows);
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
-  sh.getRange(6, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6");
-  const hdrRow = 6 + result.coverage.length + 2;
+  sh.getRange(7, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6");
+  const hdrRow = 7 + result.coverage.length + 2;
   sh.getRange(hdrRow, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6");
-  sh.getRange(7, 1, result.coverage.length, 1).setNumberFormat("mmm-yy");
-  sh.getRange(7, 2, result.coverage.length, 2).setNumberFormat("$#,##0");
+  sh.getRange(8, 1, result.coverage.length, 1).setNumberFormat("mmm-yy");
+  sh.getRange(8, 2, result.coverage.length, 2).setNumberFormat("$#,##0");
+  sh.getRange(5, 6).setNumberFormat("$#,##0");
   sh.getRange(hdrRow + 1, 5, Math.max(1, body.length), 1).setNumberFormat("mmm-yy");
   sh.getRange(hdrRow + 1, 6, Math.max(1, body.length), 1).setNumberFormat("$#,##0");
   sh.getRange(2, 2).setNumberFormat("yyyy-mm-dd hh:mm");
