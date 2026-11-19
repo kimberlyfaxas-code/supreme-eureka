@@ -76,7 +76,7 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
     [tab({ "FULL ID": "001Pl00001R9jPG" })],
     [otc({ "Full ID": "001Pl00001R9jPG", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01" })]);
   assert.strictEqual(r.lines.length, 1);
-  assert.strictEqual(r.lines[0].forecastSource, "Baseline (Tableau)");
+  assert.strictEqual(r.lines[0].forecastSource, "Tableau");
   assert.ok(r.lines[0].flags.some((f) => /no upcoming cohort/.test(f)));
   assert.strictEqual(r.lines[0].forecastAmount, 1000);
 }
@@ -107,10 +107,10 @@ const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesfo
     ],
     [otc({ "Full ID": F + "AAC", "order_estimated_start_date": "2027-03-01" })]);
   const bos = r.lines.find((l) => l.studentOrgId === "A179574");
-  assert.strictEqual(bos.forecastSource, "Baseline (Tableau)");
+  assert.strictEqual(bos.forecastSource, "Tableau");
   assert.ok(bos.flags.some((f) => /BOS/.test(f)));
   const otcLine = r.lines.find((l) => l.studentOrgId === "001C0000014HBhT");
-  assert.strictEqual(otcLine.forecastSource, "OTC Cohort");
+  assert.strictEqual(otcLine.forecastSource, "Tableau");
 }
 
 // 7. Positive adjustment -> not expected
@@ -197,7 +197,7 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
     otc({ "Full ID": F, "order_estimated_start_date": "2027-06-01", "Estimated or Actual Order Total": "1500", "Product Name": "NCLEX PN Enrichment", "cohort_name": "Aug 2027 PN" })
   ];
   const r = run(t, o);
-  const rn = r.lines.filter((l) => l.productGroup === "NURSING COURSE" && l.forecastSource.indexOf("no baseline") < 0);
+  const rn = r.lines.filter((l) => l.productGroup === "NURSING COURSE" && l.forecastSource === "Tableau");
   assert.strictEqual(rn.length, 2, "Jan + Feb groups");
   const feb = rn.find((l) => l.forecastMonth === "2027-02");
   const jan = rn.find((l) => l.forecastMonth === "2027-01");
@@ -341,5 +341,15 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   assert.strictEqual(r.lines[0].credit, "");
   assert.strictEqual(r.lines[0].creditBasis, "");
   CFG.TAG_CREDIT = true;
+}
+// 23. Forecast Source: Tableau when a baseline line exists, OTC only for cohorts with no baseline line
+{
+  const F = "0014u000025SRC";
+  const r = run([tab({ "FULL ID": F })], [
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01" }),
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-09-01", "Estimated or Actual Order Total": "800" })]);
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-02").forecastSource, "Tableau");
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-09").forecastSource, "OTC");
+  assert.ok(r.lines.every((l) => ["Tableau", "OTC", "Manual Add On"].indexOf(l.forecastSource) >= 0));
 }
 console.log("all engine tests passed");

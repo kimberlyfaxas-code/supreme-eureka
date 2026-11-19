@@ -487,7 +487,7 @@ function FY27_buildForecast(input, cfg) {
         const L = makeLine(attrs);
         L.productGroup = b.group;
         L.productName = o.productName || b.productName;
-        L.forecastSource = o.booked ? "OTC Actual" : "OTC Cohort";
+        L.forecastSource = cfg.SOURCES.TABLEAU;
         L.contractId = o.contractId;
         L.contractStart = o.contractStart;
         L.contractEnd = o.contractEnd;
@@ -553,7 +553,7 @@ function FY27_buildForecast(input, cfg) {
     const L = makeLine(attrs);
     L.productGroup = b.group;
     L.productName = b.productName;
-    L.forecastSource = "Baseline (Tableau)";
+    L.forecastSource = cfg.SOURCES.TABLEAU;
     L.forecastMonth = b.fcMonth;
     L.baselineAmount = b.baseAmt;
     L.forecastAmount = b.baseAmt;
@@ -614,7 +614,7 @@ function FY27_buildForecast(input, cfg) {
       parentAccountId: FY27_str_(sf["Parent Account ID"]),
       accountRecordType: FY27_str_(sf["Account Record Type"]),
       productGroup: o.group, productName: o.productName,
-      forecastSource: o.booked ? "OTC Actual (no baseline)" : "OTC Cohort (no baseline)",
+      forecastSource: cfg.SOURCES.OTC,
       contractId: o.contractId, contractStart: o.contractStart, contractEnd: o.contractEnd,
       forecastMonth: o.month, estStudents: o.estStudents, price: o.price, bookingId: o.bookingId,
       cohortNames: o.cohortName, cohortCodes: o.cohortCode,

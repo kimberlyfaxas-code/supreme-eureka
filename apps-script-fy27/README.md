@@ -44,6 +44,11 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Flags: contract covers the year but no upcoming cohort (CE Hub case), contract ended/expiring before the
   forecast month, no OTC data, not in Tableau, baseline month still incomplete, cohort after contract end.
 
+## Forecast Source
+`Tableau` = the line is tied to a Tableau baseline row (the amount may come from OTC cohort data); `OTC` = OTC cohort with
+no Tableau baseline line; `Manual Add On` = reserved for the manual add-on feature (not built yet). A grouped row that mixes
+sources shows both, e.g. `Tableau; OTC`.
+
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /
 Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line Key`.

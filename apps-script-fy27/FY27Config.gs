@@ -50,6 +50,12 @@ const FY27_CFG = {
   // and do not split rows. Turn on later to tag them (see README for the rules).
   TAG_CREDIT: false,
 
+  // Allowed values for the Forecast Source column.
+  //  Tableau    = line is tied to a Tableau baseline row (amount may be refined by OTC cohort data)
+  //  OTC        = OTC cohort with NO Tableau baseline line (account is in Tableau, this cohort is not)
+  //  Manual Add On = reserved for the manual add-on feature (not built yet)
+  SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On" },
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 
