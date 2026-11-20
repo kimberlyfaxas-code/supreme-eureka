@@ -334,7 +334,8 @@ function FY27_buildForecast(input, cfg) {
   const ratingByFull = {};
   base.forEach(function (b) { if (b.fullId && b.rating && !ratingByFull[b.fullId]) ratingByFull[b.fullId] = b.rating; });
   function restrictedAccount(fullId) {
-    const r = FY27_str_(ratingByFull[fullId] || (sfById[fullId] || {})["Rating"]).toLowerCase();
+    // rating comes from the Tableau Bookings Data tab only (most recent; brought in from Salesforce there)
+    const r = FY27_str_(ratingByFull[fullId]).toLowerCase();
     return r === "gray" || r === "grey" || r === "black";
   }
   const ignoredRoster = { cohorts: 0, value: 0 };
@@ -667,7 +668,7 @@ function FY27_buildForecast(input, cfg) {
       studentOrgId: FY27_str_(sf["Student Org Id"]),
       accountName: FY27_str_(sf["Account Name"] || o.accountName),
       fullId: FY27_str_(sf["FULL ID"] || o.fullId),
-      rating: FY27_str_(sf["Rating"]),
+      rating: FY27_str_(ratingByFull[o.fullId] || (notInTableau ? sf["Rating"] : "")),
       clientCategory: FY27_str_(sf["Client Category"]),
       clientSubCategory: FY27_str_(sf["Client Sub-Category"]),
       billingState: FY27_str_(sf["Billing State/Province"]),

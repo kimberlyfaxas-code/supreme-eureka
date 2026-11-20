@@ -71,6 +71,16 @@ const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, sa
   assert.ok(b.lines[0].flags.some((f) => /teach-out/.test(f)));
 }
 
+// 2b. The rating comes from the Tableau tab only: a Gray/Black rating in Salesforce does not restrict a Green Tableau account
+{
+  const F = "0014u000025SFRATING";
+  const r = run([tab({ "FULL ID": F, "Rating": "Green" })], [otc({ "Full ID": F })],
+    [{ "FULL ID": F, "Rating": "Black", "Student Org Id": "001X" }]);
+  assert.strictEqual(r.stats.ignoredRosterChasing.cohorts, 0);
+  assert.strictEqual(r.lines[0].forecastAmount, 1000);
+  assert.strictEqual(r.lines[0].rating, "Green");
+}
+
 // 3. Gray AND black still forecast OTC rebookings (existing cohorts with a code finishing their term)
 {
   ["Gray", "Black"].forEach((rating) => {
