@@ -33,6 +33,11 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - `ADJUSTMENT_MAX_ABS` ($2,000): lines larger than this are treated as real bookings already in the baseline total and are never
   derived as positive adjustments; large negative lines are flagged LARGE for review. The `Adjustments` tab is not read by default
   (`USE_ADJUSTMENTS_TAB`) because it does not list the individual 2026 adjustments.
+- Adjustments, summarised: any negative amount is an adjustment. A positive line is an adjustment when OTC actuals reconcile it
+  ("Adjustment (derived)") or when it is far smaller than the product's other bookings and falls outside its normal booking months
+  ("Adjustment (likely)", `LIKELY_ADJ_FRACTION`). All are forecast $0 with baseline kept, and flagged.
+- Pending contracts (contract ended, no OTC contract / data) are not review flags: the Forecast Category is `Renewal Pending`
+  (`PENDING_CATEGORY`) and the amount still counts, like the 2026 forecast.
 - Negative adjustments (any negative amount in the Tableau tab, plus the `Adjustments` tab if enabled) are baseline rows that are never
   forecast. The Review tab's Baseline check compares the forecast's Baseline Amount with Tableau + Adjustments tab; the difference
   should be 0 apart from rows whose forecast month falls outside the forecast year.

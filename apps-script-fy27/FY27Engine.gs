@@ -308,6 +308,7 @@ function FY27_buildForecast(input, cfg) {
   // Reconcile Tableau baseline-year bookings with OTC baseline-year actuals to find adjustments
   // (extra students added after a cohort started) - those must not recur.
   const derivedAdj = FY27_deriveAdjustments_(base, otcAll, year - 1, cfg.ADJUSTMENT_MAX_ABS);
+  const likelyAdj = FY27_flagLikelyAdjustments_(base, otcAll, year - 1, cfg);
 
   const history = FY27_buildHistory_(otcAll, cfg);
 
@@ -558,7 +559,7 @@ function FY27_buildForecast(input, cfg) {
           }
         }
         if (o.contractEnd && o.month && FY27_monthDiff_(o.month, o.contractEnd) > 0) {
-          L.flags.push("Cohort starts after contract end (" + o.contractEnd + ") - confirm contract");
+          if (L.expectation === "Expected") L.expectation = cfg.PENDING_CATEGORY;   // contract pending, no review flag
         }
         applyRatingAndAdj(L, b, !o.booked);
         lines.push(L);
@@ -602,11 +603,11 @@ function FY27_buildForecast(input, cfg) {
     } else if (b.isAdj) {
       if (b.adjReason) L.flags.push(b.adjReason);
     } else if (!otcByAcct[b.fullId]) {
-      L.flags.push("No OTC data for this Full ID - check contract / roster");
+      L.expectation = cfg.PENDING_CATEGORY;
     } else if (!cEnd) {
-      L.flags.push("No OTC contract for this product group - check");
+      L.expectation = cfg.PENDING_CATEGORY;
     } else if (FY27_monthDiff_(b.fcMonth, cEnd) > 0) {
-      L.flags.push("Contract ended " + cEnd + " - needs renewal contract before " + b.fcMonth);
+      L.expectation = cfg.PENDING_CATEGORY;   // contract ended / not renewed yet: pending, not a review flag
     } else {
       L.flags.push("Contract covers " + b.fcMonth + " (ends " + cEnd + ") but no upcoming cohort in OTC - check");
     }
@@ -767,6 +768,7 @@ function FY27_buildForecast(input, cfg) {
       lines: lines.length,
       detailLines: detail.length,
       derivedAdjustments: derivedAdj,
+      likelyAdjustments: likelyAdj,
       baseline: (function () {
         const r2 = FY27_round2_;
         const tab = base.filter(function (b) { return !b.fromAdjTab; }).reduce(function (t, b) { return t + b.baseAmt; }, 0);
@@ -852,6 +854,53 @@ function FY27_deriveAdjustments_(base, otcAll, baseYear, maxAbs) {
   return found;
 }
 
+function FY27_median_(arr) {
+  const a = arr.slice().sort(function (x, y) { return x - y; });
+  const n = a.length;
+  return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+}
+
+/**
+ * Flag POSITIVE Tableau lines that look like adjustments but did not reconcile to OTC: much smaller than the
+ * same account + product's other bookings, in a month that product does not normally book in.
+ * Mutates baseline rows (isAdj, adjReason); returns a count.
+ */
+function FY27_flagLikelyAdjustments_(base, otcAll, baseYear, cfg) {
+  let found = 0;
+  const groups = {};
+  base.forEach(function (b) {
+    if (!b.fullId || b.fromAdjTab || b.isAdj || b.baseAmt <= 0 || !b.baseMonth || FY27_yearOf_(b.baseMonth) !== baseYear) return;
+    const k = b.fullId + "|" + b.group + "|" + b.family;
+    (groups[k] = groups[k] || []).push(b);
+  });
+  Object.keys(groups).forEach(function (k) {
+    const rows = groups[k];
+    const parts = k.split("|");
+    // normal booking months-of-year for this product: OTC cohort starts (any year) ...
+    const normal = {};
+    otcAll.forEach(function (o) {
+      if (o.dne || !o.booked || !o.actStart || o.fullId !== parts[0] || o.group !== parts[1]) return;
+      if (FY27_familiesCompatible_(parts[2], o.family)) normal[o.actStart.slice(5, 7)] = true;
+    });
+    rows.forEach(function (r) {
+      const others = rows.filter(function (x) { return x !== r && !x.isAdj; });
+      if (others.length < cfg.LIKELY_ADJ_MIN_OTHERS) return;
+      const med = FY27_median_(others.map(function (x) { return x.baseAmt; }));
+      // ... plus months where normal-sized Tableau bookings land
+      const months = Object.assign({}, normal);
+      others.forEach(function (x) { if (x.baseAmt >= med * 0.5) months[x.baseMonth.slice(5, 7)] = true; });
+      if (r.baseAmt < med * cfg.LIKELY_ADJ_FRACTION && !months[r.baseMonth.slice(5, 7)]) {
+        r.isAdj = true;
+        r.adjReason = "Adjustment (likely): $" + Math.round(r.baseAmt).toLocaleString() + " booked " + r.baseMonth +
+          " is much smaller than this product's usual bookings (median $" + Math.round(med).toLocaleString() +
+          ") and not in its normal booking months. Not recurring, forecast $0";
+        found++;
+      }
+    });
+  });
+  return found;
+}
+
 /** Collapse detail lines that share a group key into one forecast row. */
 function FY27_mergeLines_(parts, makeLine) {
   const first = parts[0];
@@ -903,7 +952,7 @@ function FY27_severity_(flag) {
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
       f.indexOf("no upcoming cohort") >= 0 || f.indexOf("no otc contract") >= 0) return "High";
   if (f.indexOf("not complete yet") >= 0 || f.indexOf("no matching") >= 0 || f.indexOf("after contract end") >= 0 ||
-      f.indexOf("positive adjustment") >= 0 || f.indexOf("adjustment (derived)") >= 0 || f.indexOf("booking for this program") >= 0 ||
+      f.indexOf("positive adjustment") >= 0 || f.indexOf("adjustment (derived)") >= 0 || f.indexOf("adjustment (likely)") >= 0 || f.indexOf("booking for this program") >= 0 ||
       f.indexOf("adjustment: baseline") >= 0) return "Medium";
   return "Low";
 }

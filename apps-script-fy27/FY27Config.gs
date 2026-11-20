@@ -61,7 +61,18 @@ const FY27_CFG = {
   // treated as a real booking that is already part of the baseline total, so it is never DERIVED as a
   // positive adjustment. Large negative lines are still not forecast (a negative cannot recur) but are
   // flagged for review.
-  ADJUSTMENT_MAX_ABS: 2000,
+  ADJUSTMENT_MAX_ABS: 0,   // 0 = off (any negative is an adjustment; positives are found by OTC reconciliation or the small-line test)
+
+  // Likely-adjustment test for POSITIVE Tableau lines that OTC could not reconcile: a line is flagged when it is
+  // smaller than LIKELY_ADJ_FRACTION x the median of the same account + product's other bookings AND it falls in
+  // a month that is not one of that product's normal booking months (months OTC cohorts start, or where
+  // normal-sized Tableau bookings land). Needs at least LIKELY_ADJ_MIN_OTHERS other bookings to compare with.
+  LIKELY_ADJ_FRACTION: 0.25,
+  LIKELY_ADJ_MIN_OTHERS: 2,
+
+  // Forecast Category for lines whose contract is pending (expired / not yet renewed / not in OTC).
+  // Counts as Expected in the roll-up (same idea as "Renewal Pending" in the 2026 forecast); not flagged for review.
+  PENDING_CATEGORY: "Renewal Pending",
 
   // The hidden "Adjustments" tab is not a complete list of individual 2026 adjustments, so it is not read
   // by default. Set true to add its rows as baseline-only lines (never forecast).

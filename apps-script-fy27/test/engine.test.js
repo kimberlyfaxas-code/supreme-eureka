@@ -95,7 +95,9 @@ const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, sa
   const r = run(
     [tab({ "FULL ID": "0014W00003S8JGS", "Forecast Month - Tableau": "9/1/2027", "Baseline Booking Month - Tableau": "9/1/2026" })],
     [otc({ "Full ID": "0014W00003S8JGS", "Contract End Date": "2027-04-01", "order_estimated_start_date": "2026-08-01", "order_status": "Complete", "order_actual_start_date": "2026-08-01" })]);
-  assert.ok(r.lines[0].flags.some((f) => /needs renewal/.test(f)));
+  assert.strictEqual(r.lines[0].expectation, "Renewal Pending");   // expired contract: status, not a review flag
+  assert.ok(!r.lines[0].flags.some((f) => /renewal|contract/i.test(f)), JSON.stringify(r.lines[0].flags));
+  assert.strictEqual(r.lines[0].forecastAmount, 1000);              // still counted
 }
 
 // 6. Morgan: BOS billing ID rows skip OTC matching, OTC billed row matches (same Full ID)
@@ -398,6 +400,7 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   assert.strictEqual(E.FY27_monthKey_("Sep 2027"), "2027-09");
   assert.strictEqual(E.FY27_monthKey_("May 2028 LPN to RN"), "");
 }
+CFG.ADJUSTMENT_MAX_ABS = 2000;
 // 27. Lines over the cap are real bookings, not derived adjustments
 {
   const F = "0014u000025BIGLINE";
@@ -414,5 +417,47 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   const r = run([tab({ "FULL ID": "0014u000025BIGNEG", "Baseline Amount - Tableau": "-7605" })], []);
   assert.strictEqual(r.lines[0].forecastAmount, 0);
   assert.ok(r.lines[0].flags.some((f) => /LARGE/.test(f)));
+}
+CFG.ADJUSTMENT_MAX_ABS = 0;
+
+// 29. Negative of any size is an adjustment, no LARGE note when the cap is off
+{
+  const r = run([tab({ "FULL ID": "0014u000025NEGBIG2", "Baseline Amount - Tableau": "-7605" })], []);
+  assert.strictEqual(r.lines[0].forecastAmount, 0);
+  assert.ok(!r.lines[0].flags.some((f) => /LARGE/.test(f)));
+}
+// 30. Likely positive adjustment: much smaller than the product's usual bookings, in a non-booking month
+{
+  const F = "0014u000025LIKELY";
+  const row = (month, amt, fc) => tab({ "FULL ID": F, "Baseline Amount - Tableau": String(amt), "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": fc });
+  const r = run([row("2/1/2026", 9000, "2/1/2027"), row("8/1/2026", 11000, "8/1/2027"), row("5/1/2026", 10000, "5/1/2027"), row("3/1/2026", 300, "3/1/2027")], []);
+  assert.strictEqual(r.stats.likelyAdjustments, 1);
+  const mar = r.lines.find((l) => l.forecastMonth === "2027-03");
+  assert.strictEqual(mar.forecastAmount, 0);
+  assert.strictEqual(mar.adjustment, "TRUE");
+  assert.ok(mar.flags.some((f) => /^Adjustment \(likely\): \$300/.test(f)));
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-02").forecastAmount, 9000);
+}
+// 30b. Small line IN a normal booking month is a real booking, not flagged
+{
+  const F = "0014u000025NORMALM";
+  const row = (month, amt, fc) => tab({ "FULL ID": F, "Baseline Amount - Tableau": String(amt), "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": fc });
+  const r = run([row("2/1/2026", 9000, "2/1/2027"), row("8/1/2026", 11000, "8/1/2027"), row("5/1/2026", 10000, "5/1/2027"), row("8/1/2026", 300, "8/1/2027")], []);
+  assert.strictEqual(r.stats.likelyAdjustments, 0);
+}
+// 30c. Not enough other bookings to compare with -> not flagged
+{
+  const F = "0014u000025FEWOTH";
+  const row = (month, amt, fc) => tab({ "FULL ID": F, "Baseline Amount - Tableau": String(amt), "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": fc });
+  const r = run([row("2/1/2026", 9000, "2/1/2027"), row("3/1/2026", 300, "3/1/2027")], []);
+  assert.strictEqual(r.stats.likelyAdjustments, 0);
+}
+// 31. Pending contract: no OTC contract at all for a non-BOS account -> Renewal Pending, no flags
+{
+  const r = run([tab({ "FULL ID": "0014u000025PENDING" })], [otc({ "Full ID": "0014u000025OTHERACCT" })]);
+  assert.strictEqual(r.lines[0].expectation, "Renewal Pending");
+  assert.strictEqual(r.lines[0].flags.length, 0);
+  assert.strictEqual(r.lines[0].forecastAmount, 1000);
+  assert.strictEqual(r.review.length, 0);
 }
 console.log("all engine tests passed");
