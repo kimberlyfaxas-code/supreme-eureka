@@ -331,6 +331,24 @@ function FY27_writeBacktest_(ss, bt) {
     fmt.push([r, 3, "$#,##0"], [r, 5, "$#,##0"], [r, 7, "$#,##0"]);
   });
   add([]);
+  hdr = add(["Signal on the engine side", "Lines", "Baseline $", "Team zero (lines)", "Team zero (% of lines)", "Team zero $", "Team zero (% of $)"]);
+  hdrs.push(hdr);
+  Object.keys(bt.signals).sort().forEach(function (k) {
+    const x = bt.signals[k];
+    const r = add([k, x.n, x.base, x.zero, x.n ? x.zero / x.n : 0, x.zeroBase, x.base ? x.zeroBase / x.base : 0]);
+    fmt.push([r, 3, "$#,##0"], [r, 5, "0%"], [r, 6, "$#,##0"], [r, 7, "0%"]);
+  });
+  add([]);
+  hdr = add(["Year level (account x product group)", "Team says", "Accounts", "Baseline $", "Engine forecast $", "Team final $", ""]);
+  hdrs.push(hdr);
+  ["Zero", "Partial", "Full"].forEach(function (eb) {
+    ["Zero", "Partial", "Full"].forEach(function (tb) {
+      const c = bt.yearCross[eb + "|" + tb] || { n: 0, base: 0, engine: 0, team: 0 };
+      const r = add(["Engine " + eb, tb, c.n, c.base, c.engine, c.team]);
+      fmt.push([r, 4, "$#,##0"], [r, 5, "$#,##0"], [r, 6, "$#,##0"]);
+    });
+  });
+  add([]);
   hdr = add(["2026 month", "Baseline $", "Engine forecast $", "Team final forecast $", "", "", ""]);
   hdrs.push(hdr);
   Object.keys(bt.monthly).sort().forEach(function (m) {

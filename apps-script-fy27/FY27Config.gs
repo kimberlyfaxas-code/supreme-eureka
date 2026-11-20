@@ -82,6 +82,12 @@ const FY27_CFG = {
   // by default. Set true to add its rows as baseline-only lines (never forecast).
   USE_ADJUSTMENTS_TAB: false,
 
+  // OTC cohort amounts only replace a Tableau baseline when they are in the same ballpark. If the matched
+  // cohorts' estimated total is below MATCH_AMOUNT_BAND[0] x or above MATCH_AMOUNT_BAND[1] x the baseline, the
+  // baseline amount is kept and the difference is flagged (e.g. annual Med fees vs. per-student cohort overages,
+  // or an OTC order with a $0 estimate). Booked OTC actuals are never second-guessed.
+  MATCH_AMOUNT_BAND: [0.5, 2.0],
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

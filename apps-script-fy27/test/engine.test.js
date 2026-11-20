@@ -488,4 +488,18 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.detail[0].teamBand, "Zero");
   assert.strictEqual(r.reasons["Adjustment (likely, small line)"].teamZero, 1);
 }
+// 33. OTC estimate far from baseline (or $0): baseline kept, flagged, cohorts not re-added as extra lines
+{
+  const F = "0014u000025BANDAAA";
+  const mk = (total) => run([tab({ "FULL ID": F, "Baseline Amount - Tableau": "225000" })], [otc({ "Full ID": F, "Estimated or Actual Order Total": String(total), "order_estimated_start_date": "2027-02-01" })]);
+  const low = mk(1298);
+  assert.strictEqual(low.lines.length, 1);
+  assert.strictEqual(low.lines[0].forecastAmount, 225000);
+  assert.ok(low.lines[0].flags.some((f) => /far from baseline/.test(f)));
+  const zero = mk(0);
+  assert.strictEqual(zero.lines[0].forecastAmount, 225000);
+  const ok = mk(200000);                         // within 0.5x - 2x: OTC amount used
+  assert.strictEqual(ok.lines[0].forecastAmount, 200000);
+  assert.strictEqual(ok.lines[0].forecastSource, "Tableau");
+}
 console.log("all engine tests passed");

@@ -497,7 +497,16 @@ function FY27_buildForecast(input, cfg) {
 
   base.forEach(function (b) {
     const attrs = attrsFromBaseline(b);
-    const matches = assigned.get(b) || [];
+    let matches = assigned.get(b) || [];
+    let otcDiffers = "";
+    if (matches.length && b.baseAmt > 0 && cfg.MATCH_AMOUNT_BAND && !matches.some(function (o) { return o.booked; })) {
+      const tot = matches.reduce(function (t, o) { return t + o.total; }, 0);
+      if (tot < cfg.MATCH_AMOUNT_BAND[0] * b.baseAmt || tot > cfg.MATCH_AMOUNT_BAND[1] * b.baseAmt) {
+        otcDiffers = "OTC cohort estimate $" + Math.round(tot).toLocaleString() + " is far from baseline $" + Math.round(b.baseAmt).toLocaleString() +
+          " - baseline kept, check cohort / contract";
+        matches = [];   // cohorts stay consumed (not re-added as OTC-only lines); baseline carries the forecast
+      }
+    }
     const prior = priorCohortsFor(b);
     const ceKey = b.fullId + "|" + b.group;
     const cEnd = contractEnd[ceKey] || "";
@@ -603,7 +612,9 @@ function FY27_buildForecast(input, cfg) {
     baseFlags.forEach(function (f) { L.flags.push(f); });
 
     // why is there no cohort?
-    if (b.isBOS) {
+    if (otcDiffers && !b.isBOS && !b.isAdj) {
+      L.flags.push(otcDiffers);
+    } else if (b.isBOS) {
       L.flags.push("BOS billing ID - not in OTC; forecast from baseline only");
     } else if (b.isAdj) {
       if (b.adjReason) L.flags.push(b.adjReason);
@@ -957,7 +968,7 @@ function FY27_severity_(flag) {
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
       f.indexOf("no upcoming cohort") >= 0 || f.indexOf("no otc contract") >= 0) return "High";
   if (f.indexOf("not complete yet") >= 0 || f.indexOf("no matching") >= 0 || f.indexOf("after contract end") >= 0 ||
-      f.indexOf("positive adjustment") >= 0 || f.indexOf("adjustment (derived)") >= 0 || f.indexOf("adjustment (likely)") >= 0 || f.indexOf("booking for this program") >= 0 ||
+      f.indexOf("positive adjustment") >= 0 || f.indexOf("adjustment (derived)") >= 0 || f.indexOf("far from baseline") >= 0 || f.indexOf("adjustment (likely)") >= 0 || f.indexOf("booking for this program") >= 0 ||
       f.indexOf("adjustment: baseline") >= 0) return "Medium";
   return "Low";
 }

@@ -41,6 +41,8 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Negative adjustments (any negative amount in the Tableau tab, plus the `Adjustments` tab if enabled) are baseline rows that are never
   forecast. The Review tab's Baseline check compares the forecast's Baseline Amount with Tableau + Adjustments tab; the difference
   should be 0 apart from rows whose forecast month falls outside the forecast year.
+- OTC amounts only replace a baseline when the matched cohorts' total is within `MATCH_AMOUNT_BAND` (0.5x-2x) of it; otherwise the
+  baseline is kept and flagged (annual fees, $0 OTC estimates).
 - Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
   baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
   missing from Tableau entirely are exempt and flagged instead.
@@ -68,7 +70,8 @@ Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line K
 **FY27 Forecast > Backtest against 2026 forecast** runs the same engine on the 2025 baseline (`2026 Beginning Forecast Reference`)
 and compares it, per Student Org ID + product group + 2026 baseline month, with the final 2026 forecast (`2026 Forecast Reference`).
 Outputs `Backtest Summary` (engine vs team agreement table, why the engine zeroed lines, month totals) and `Backtest Detail`
-(every disagreement, largest first, with the team's category and comment). The OTC export is from Nov 2026, so treat it as a logic
+(every disagreement, largest first, with the team's category and comment), a signals table (how often the team zeroed lines the
+engine flagged a given way) and a year-level (account x product group) comparison that ignores month moves. The OTC export is from Nov 2026, so treat it as a logic
 check, not an accuracy score.
 
 ## Tests

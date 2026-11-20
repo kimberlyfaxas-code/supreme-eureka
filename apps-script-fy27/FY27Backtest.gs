@@ -94,8 +94,10 @@ function FY27_backtest_(input, cfg) {
   res.detail.forEach(function (d) {
     if (!d.baselineMonth) return;
     const k = [FY27_id15_(d.studentOrgId), d.productGroup, FY27_addMonths_(d.baselineMonth, 12)].join("|");
-    const e = eng[k] || (eng[k] = { account: d.accountName, baseline: 0, forecast: 0, flags: [], expectations: {} });
+    const e = eng[k] || (eng[k] = { account: d.accountName, baseline: 0, forecast: 0, flags: [], expectations: {}, rating: d.rating, cohort: false, bos: false });
     e.baseline += d.baselineAmount; e.forecast += d.forecastAmount;
+    if (d.cohortNames || d.cohortCodes) e.cohort = true;
+    if (/^A\d+$/.test(FY27_str_(d.studentOrgId))) e.bos = true;
     d.flags.forEach(function (f) { if (e.flags.indexOf(f) < 0) e.flags.push(f); });
     e.expectations[d.expectation] = true;
   });
@@ -125,6 +127,21 @@ function FY27_backtest_(input, cfg) {
   Object.keys(eng).forEach(function (k) { keys[k] = true; });
   Object.keys(fin).forEach(function (k) { keys[k] = true; });
   const cross = {};            // "engineBand|teamBand" -> {n, base}
+  const signals = {};          // signal -> {n, base, zero, zeroBase, partial, full}
+  const yearAcc = {};          // org|group -> {baseline, engine, team}
+  function signalsOf(e) {
+    const s = [];
+    const f = e.flags.join(" | ").toLowerCase();
+    s.push("Rating: " + (e.rating || "(blank)"));
+    s.push(e.cohort ? "OTC cohort matched" : "Baseline only (no OTC cohort)");
+    if (e.bos) s.push("BOS billing (not in OTC)");
+    if (e.expectations["Renewal Pending"]) s.push("Contract pending (Renewal Pending)");
+    if (f.indexOf("no upcoming cohort") >= 0) s.push("Contract covers year, no upcoming cohort");
+    if (f.indexOf("far from baseline") >= 0) s.push("OTC estimate far from baseline");
+    if (f.indexOf("adjustment: baseline") >= 0) s.push("Baseline above/below OTC estimate");
+    if (f.indexOf("trend-adjusted") >= 0) s.push("Cohort size trend-adjusted");
+    return s;
+  }
   const reasons = {};          // reason -> {n, base, teamFull, teamZero}
   const detail = [];
   const monthly = {};
@@ -134,6 +151,13 @@ function FY27_backtest_(input, cfg) {
     const base = Math.max(e.baseline, t.baseline);
     const eb = FY27_band_(e.forecast, e.baseline), tb = FY27_band_(t.forecast, t.baseline);
     if (eb === "n/a" || tb === "n/a") return;
+    const ya = yearAcc[k.split("|")[0] + "|" + k.split("|")[1]] || (yearAcc[k.split("|")[0] + "|" + k.split("|")[1]] = { baseline: 0, engine: 0, team: 0 });
+    ya.baseline += base; ya.engine += e.forecast; ya.team += t.forecast;
+    signalsOf(e).forEach(function (sg) {
+      const x = signals[sg] || (signals[sg] = { n: 0, base: 0, zero: 0, zeroBase: 0, partial: 0, full: 0 });
+      x.n++; x.base += base;
+      if (tb === "Zero") { x.zero++; x.zeroBase += base; } else if (tb === "Partial") x.partial++; else x.full++;
+    });
     const ck = eb + "|" + tb;
     const c = cross[ck] || (cross[ck] = { n: 0, base: 0 });
     c.n++; c.base += base;
@@ -158,7 +182,15 @@ function FY27_backtest_(input, cfg) {
     }
   });
   detail.sort(function (a, b) { return b.baseline - a.baseline; });
-  return { cross: cross, reasons: reasons, detail: detail, monthly: monthly, compared: Object.keys(keys).filter(function (k) { return eng[k] && fin[k]; }).length,
+  const yearCross = {};
+  Object.keys(yearAcc).forEach(function (k) {
+    const y = yearAcc[k];
+    const eb = FY27_band_(y.engine, y.baseline), tb = FY27_band_(y.team, y.baseline);
+    if (eb === "n/a") return;
+    const c = yearCross[eb + "|" + tb] || (yearCross[eb + "|" + tb] = { n: 0, base: 0, engine: 0, team: 0 });
+    c.n++; c.base += y.baseline; c.engine += y.engine; c.team += y.team;
+  });
+  return { cross: cross, yearCross: yearCross, signals: signals, reasons: reasons, detail: detail, monthly: monthly, compared: Object.keys(keys).filter(function (k) { return eng[k] && fin[k]; }).length,
            engineOnly: Object.keys(eng).filter(function (k) { return !fin[k]; }).length, teamOnly: Object.keys(fin).filter(function (k) { return !eng[k]; }).length,
            engineStats: res.stats };
 }
