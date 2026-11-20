@@ -19,6 +19,10 @@ const FY27_CFG = {
     DETAIL: "Forecast Detail",       // ungrouped (one row per OTC cohort / baseline line) for tracing
     ADJUSTMENTS: "Adjustments",     // negative adjustments (baseline only, never forecast); optional
     REVIEW: "Forecast Review",
+    BT_BEGINNING: "2026 Beginning Forecast Reference",
+    BT_FINAL: "2026 Forecast Reference",
+    BT_SUMMARY: "Backtest Summary",
+    BT_DETAIL: "Backtest Detail",
     OVERRIDES: "Forecast Overrides"
   },
 

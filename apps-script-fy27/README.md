@@ -3,7 +3,7 @@
 Separate from `../apps-script/` (the FY2026 dashboard tooling, left untouched).
 
 ## Install (in the FY2027 sheet: Extensions > Apps Script)
-Add three script files with the contents of: `FY27Config.gs`, `FY27Engine.gs`, `FY27Build.gs`.
+Add four script files with the contents of: `FY27Config.gs`, `FY27Engine.gs`, `FY27Build.gs`, `FY27Backtest.gs`.
 Reload the sheet; a **FY27 Forecast** menu appears.
 
 ## Refresh loop
@@ -63,6 +63,13 @@ sources shows both, e.g. `Tableau; OTC`.
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /
 Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line Key`.
+
+## Backtest against the 2026 forecast
+**FY27 Forecast > Backtest against 2026 forecast** runs the same engine on the 2025 baseline (`2026 Beginning Forecast Reference`)
+and compares it, per Student Org ID + product group + 2026 baseline month, with the final 2026 forecast (`2026 Forecast Reference`).
+Outputs `Backtest Summary` (engine vs team agreement table, why the engine zeroed lines, month totals) and `Backtest Detail`
+(every disagreement, largest first, with the team's category and comment). The OTC export is from Nov 2026, so treat it as a logic
+check, not an accuracy score.
 
 ## Tests
 `node apps-script-fy27/test/engine.test.js` (pure engine, synthetic fixtures mirroring the Forecast Goals examples).

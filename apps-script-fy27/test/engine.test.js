@@ -460,4 +460,32 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.lines[0].forecastAmount, 1000);
   assert.strictEqual(r.review.length, 0);
 }
+// 32. Backtest: engine zeroes a small off-month line (adjustment) and the team also zeroed it -> agree;
+//     a line the engine keeps but the team zeroed shows up as a disagreement
+{
+  const btSrc = fs.readFileSync(path.join(__dirname, "../FY27Backtest.gs"), "utf8");
+  const BT = new Function(engSrc + "\n" + btSrc + "\nreturn { FY27_backtest_, FY27_rollup_ };")();
+  assert.strictEqual(BT.FY27_rollup_("Captured - On Time"), "Captured");
+  assert.strictEqual(BT.FY27_rollup_("Not expected (Active Client - ...)"), "Not Expected");
+  assert.strictEqual(BT.FY27_rollup_("Renewal Pending"), "Expected");
+  const ORG = "001ORGAAAAAAAAA1";
+  const beg = (m, amt) => ({ "Student Org ID": ORG, "Forecast Source": "System Forecast", "Forecast Line Type": "Forecast", "Health Rating": "Green",
+    "Account Name": "Acct", "Product Group": "NURSING COURSE", "Baseline Month": m, "Baseline Amount": "$" + amt, "Starting Forecast Amount": "$" + amt });
+  const fin = (m, base, fc, cat) => ({ "Student Org ID": ORG, "Forecast Line Type": "Forecast", "Account Name": "Acct", "Product Group": "NURSING COURSE",
+    "Baseline Month": m, "Baseline Amount": String(base), "Forecast Amount": String(fc), "Forecast Category": cat, "Latest Comment": "c" });
+  const r = BT.FY27_backtest_({
+    beginning: [beg("Feb-26", 9000), beg("Mar-26", 300), beg("May-26", 10000), beg("Aug-26", 11000), beg("Jun-26", 5000)],
+    final: [fin("2/1/2026", 9000, 9000, "Captured - On Time"), fin("3/1/2026", 300, 0, "Not expected (Active Client)"),
+            fin("5/1/2026", 10000, 10000, "Captured - Early"), fin("8/1/2026", 11000, 11000, "Expected"),
+            fin("6/1/2026", 5000, 0, "Not expected (Active Client)")],
+    salesforce: [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFFULL01" }], otc: []
+  }, CFG);
+  assert.strictEqual(r.compared, 5);
+  assert.strictEqual(r.cross["Zero|Zero"].n, 1);              // the $300 adjustment
+  assert.strictEqual(r.cross["Full|Full"].n, 3);
+  assert.strictEqual(r.cross["Full|Zero"].n, 1);              // $5,000 June: engine kept it, team zeroed it
+  assert.strictEqual(r.detail.length, 1);
+  assert.strictEqual(r.detail[0].teamBand, "Zero");
+  assert.strictEqual(r.reasons["Adjustment (likely, small line)"].teamZero, 1);
+}
 console.log("all engine tests passed");

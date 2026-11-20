@@ -24,6 +24,11 @@ function FY27_monthKey_(v) {
   if (m) return m[1] + "-" + FY27_pad2_(parseInt(m[2], 10));
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (m) return m[3] + "-" + FY27_pad2_(parseInt(m[1], 10));
+  m = s.match(/^([A-Za-z]{3})-(\d{2})$/);                    // "Dec-26"
+  if (m) {
+    const mj = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].toLowerCase());
+    if (mj >= 0) return (2000 + parseInt(m[2], 10)) + "-" + FY27_pad2_(mj + 1);
+  }
   m = s.match(/^([A-Za-z]{3})[A-Za-z]*\.?[ -]+(\d{4})$/);   // "June 2026", "Jun 2026"
   if (m) {
     const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].toLowerCase());

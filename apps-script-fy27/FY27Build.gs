@@ -16,6 +16,7 @@ function onOpen() {
     .createMenu("FY27 Forecast")
     .addItem("Build / refresh forecast", "FY27_run")
     .addItem("Add override for selected Forecast row", "FY27_addOverrideForSelection")
+    .addItem("Backtest against 2026 forecast", "FY27_runBacktest")
     .addSeparator()
     .addItem("Set up Overrides tab", "FY27_ensureOverridesSheet_")
     .addToUi();
@@ -276,4 +277,86 @@ function FY27_addOverrideForSelection() {
   ov.getRange(last, 7).insertCheckboxes();
   ss.setActiveSheet(ov);
   ov.setActiveRange(ov.getRange(last, 5));
+}
+
+/* ---------------- backtest vs the 2026 forecast ---------------- */
+
+function FY27_runBacktest() {
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) throw new Error("Another run is in progress. Try again in 30 seconds.");
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const cfg = FY27_CFG;
+    ss.toast("Reading reference tabs...", "FY27 Backtest", 5);
+    const readRows = function (sh, opts) { return FY27_gridToRows_(sh.getDataRange().getValues(), opts).rows; };
+    const beginning = readRows(FY27_mustFind_(ss, cfg.SHEETS.BT_BEGINNING, null, "2026 Beginning Forecast Reference"));
+    const final = readRows(FY27_mustFind_(ss, cfg.SHEETS.BT_FINAL, null, "2026 Forecast Reference"));
+    const otc = readRows(FY27_mustFind_(ss, cfg.SHEETS.OTC, cfg.SHEETS.OTC_PREFIX, "OTC"), { skipRawHeaderRow: "account_name" });
+    const sf = readRows(FY27_mustFind_(ss, cfg.SHEETS.SALESFORCE, cfg.SHEETS.SALESFORCE_PREFIX, "Salesforce"));
+    ss.toast("Running the engine on the 2025 baseline...", "FY27 Backtest", 8);
+    const bt = FY27_backtest_({ beginning: beginning, final: final, salesforce: sf, otc: otc }, cfg);
+    FY27_writeBacktest_(ss, bt);
+    ss.toast(bt.compared + " baseline lines compared. See '" + cfg.SHEETS.BT_SUMMARY + "'.", "FY27 Backtest", 10);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function FY27_writeBacktest_(ss, bt) {
+  const cfg = FY27_CFG;
+  const sum = ss.getSheetByName(cfg.SHEETS.BT_SUMMARY) || ss.insertSheet(cfg.SHEETS.BT_SUMMARY);
+  const det = ss.getSheetByName(cfg.SHEETS.BT_DETAIL) || ss.insertSheet(cfg.SHEETS.BT_DETAIL);
+  sum.clear(); det.clear();
+  const rows = [], fmt = [];
+  const add = function (r) { while (r.length < 7) r.push(""); rows.push(r); return rows.length; };
+  add(["Backtest: engine logic on the 2025 baseline vs the final 2026 forecast"]);
+  add(["Compared baseline lines", bt.compared, "Engine only", bt.engineOnly, "Team forecast only", bt.teamOnly]);
+  add(["Bands: Full = forecast >= 90% of baseline, Zero = <= 5%, Partial = in between. OTC is the Nov 2026 export, so read this as a logic check."]);
+  add([]);
+  let hdr = add(["Engine says", "Team 2026 final says", "Lines", "Baseline $", "", "", ""]);
+  const hdrs = [hdr];
+  ["Zero", "Partial", "Full"].forEach(function (eb) {
+    ["Zero", "Partial", "Full"].forEach(function (tb) {
+      const c = bt.cross[eb + "|" + tb] || { n: 0, base: 0 };
+      const r = add([eb, tb, c.n, c.base]);
+      fmt.push([r, 4, "$#,##0"]);
+    });
+  });
+  add([]);
+  hdr = add(["Why the engine zeroed it", "Lines", "Baseline $", "Team also zero", "Team zero $", "Team kept (full)", "Team kept $"]);
+  hdrs.push(hdr);
+  Object.keys(bt.reasons).sort(function (a, b) { return bt.reasons[b].base - bt.reasons[a].base; }).forEach(function (k) {
+    const x = bt.reasons[k];
+    const r = add([k, x.n, x.base, x.teamZero, x.teamZeroBase, x.teamFull, x.teamFullBase]);
+    fmt.push([r, 3, "$#,##0"], [r, 5, "$#,##0"], [r, 7, "$#,##0"]);
+  });
+  add([]);
+  hdr = add(["2026 month", "Baseline $", "Engine forecast $", "Team final forecast $", "", "", ""]);
+  hdrs.push(hdr);
+  Object.keys(bt.monthly).sort().forEach(function (m) {
+    const x = bt.monthly[m];
+    const r = add([FY27_monthToDate_(m), x.baseline, x.engine, x.team]);
+    fmt.push([r, 1, "mmm-yy"], [r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"]);
+  });
+  sum.getRange(1, 1, rows.length, 7).setValues(rows);
+  fmt.forEach(function (f) { sum.getRange(f[0], f[1]).setNumberFormat(f[2]); });
+  sum.getRange(1, 1).setFontWeight("bold").setFontSize(14);
+  hdrs.forEach(function (h) { sum.getRange(h, 1, 1, 7).setFontWeight("bold").setBackground("#E7EDF6"); });
+  sum.autoResizeColumns(1, 7);
+
+  const head = ["Account", "Product Group", "2026 Month", "Baseline $", "Engine forecast $", "Team final $", "Engine band", "Team band",
+    "Engine reason", "Team category", "Team roll-up", "Team outreach status", "Team comment", "Engine flags"];
+  const out = [head];
+  bt.detail.slice(0, 2000).forEach(function (d) {
+    out.push([d.account, d.group, FY27_monthToDate_(d.month), d.baseline, d.engine, d.team, d.engineBand, d.teamBand,
+      d.engineReason, d.teamCategory, d.teamRollup, d.outreach, d.teamComment, d.engineFlags]);
+  });
+  det.getRange(1, 1, out.length, head.length).setValues(out);
+  det.setFrozenRows(1);
+  det.getRange(1, 1, 1, head.length).setFontWeight("bold").setBackground("#E7EDF6");
+  if (out.length > 1) {
+    det.getRange(2, 3, out.length - 1, 1).setNumberFormat("mmm-yy");
+    det.getRange(2, 4, out.length - 1, 3).setNumberFormat("$#,##0");
+  }
+  det.autoResizeColumns(1, 11);
 }
