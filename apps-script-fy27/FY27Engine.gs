@@ -24,6 +24,11 @@ function FY27_monthKey_(v) {
   if (m) return m[1] + "-" + FY27_pad2_(parseInt(m[2], 10));
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (m) return m[3] + "-" + FY27_pad2_(parseInt(m[1], 10));
+  m = s.match(/^([A-Za-z]{3})[A-Za-z]*\.?[ -]+(\d{4})$/);   // "June 2026", "Jun 2026"
+  if (m) {
+    const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[1].toLowerCase());
+    if (mi >= 0) return m[2] + "-" + FY27_pad2_(mi + 1);
+  }
   return "";
 }
 function FY27_monthIdx_(key) {
@@ -211,7 +216,8 @@ function FY27_normBaseline_(r, cfg) {
     baseMonth: baseMonth,
     fcMonth: fcMonth,
     baseAmt: FY27_num_(r["Baseline Amount - Tableau"]),
-    isAdj: FY27_bool_(r["Adjustment (true/false)"]),
+    isNegAdj: FY27_num_(r["Baseline Amount - Tableau"]) < 0,
+    isAdj: FY27_bool_(r["Adjustment (true/false)"]) || FY27_num_(r["Baseline Amount - Tableau"]) < 0,
     priorType: FY27_str_(r["Prior Booking Type"]),
     nextType: FY27_str_(r["Next Booking Type"]),
     bookingId: FY27_str_(r["booking_id"])
@@ -273,7 +279,25 @@ function FY27_buildForecast(input, cfg) {
     : FY27_monthKey_(cfg.ACTUALS_THROUGH);
 
   const otcAll = input.otc.map(function (r, i) { const o = FY27_normOtc_(r, cfg); if (!o.row) o.row = "i" + i; return o; }).filter(function (o) { return o.fullId; });
-  const base = input.tableau.map(function (r, i) { const b = FY27_normBaseline_(r, cfg); if (!b.row) b.row = "i" + i; return b; })
+  // Rows from the separate Adjustments tab (mostly negative adjustments) are baseline too: they count in the
+  // baseline, are never forecast. Mapped onto the Tableau column names so one code path handles both.
+  const adjRows = (input.adjustments || []).map(function (r) {
+    return {
+      "Account Name with Billing ID": r["Account Name with Student Org"], "Billing ID": r["Student Org ID"],
+      "Account Name": r["Account Name"], "Sales Rep": r["Sales Rep"], "Customer Type": r["Customer Type"],
+      "FULL ID": r["FULL ID"], "Rating": r["Rating"], "Client Category": r["Client Category"],
+      "Client Sub-Category": r["Client Sub-Category"], "Billing State/Province": r["Billing State/Province"],
+      "Account Owner": r["Account Owner"], "Client Success Manager": r["Client Success Manager"],
+      "Parent Account": r["Parent Account"], "Billing Country": r["Billing Country"],
+      "Parent Account ID": r["Parent Account ID"], "Account Record Type": r["Account Record Type"],
+      "Product Group": r["Product Group"], "Product Name": r["Product Name"],
+      "Prior Booking Type": r["Sales Type"], "Next Booking Type": "", "Adjustment (true/false)": "TRUE",
+      "Baseline Booking Month - Tableau": r["Booking Month"], "Forecast Month - Tableau": r["Baseline Month"],
+      "Baseline Amount - Tableau": r["Baseline Amount"], "booking_id": "", __row: "adj" + r.__row, __adjTab: true
+    };
+  });
+  const base = input.tableau.concat(adjRows).map(function (r, i) {
+      const b = FY27_normBaseline_(r, cfg); if (!b.row) b.row = "i" + i; b.fromAdjTab = !!r.__adjTab; return b; })
     .filter(function (b) { return b.fullId || b.baseAmt || b.group; });
   const sfById = {};
   (input.salesforce || []).forEach(function (r) {
@@ -447,6 +471,10 @@ function FY27_buildForecast(input, cfg) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
       line.flags.push("Positive adjustment: tagged not expected for this client");
+    } else if (b && b.isAdj && b.baseAmt < 0) {
+      line.expectation = "Not Expected";
+      line.forecastAmount = 0;
+      line.flags.push("Negative adjustment" + (b.fromAdjTab ? " (Adjustments tab)" : "") + ": in baseline, not forecast");
     }
     if (kind === "black") {
       line.expectation = "Not Expected";
@@ -737,6 +765,13 @@ function FY27_buildForecast(input, cfg) {
       lines: lines.length,
       detailLines: detail.length,
       derivedAdjustments: derivedAdj,
+      baseline: (function () {
+        const r2 = FY27_round2_;
+        const tab = base.filter(function (b) { return !b.fromAdjTab; }).reduce(function (t, b) { return t + b.baseAmt; }, 0);
+        const adjT = base.filter(function (b) { return b.fromAdjTab; }).reduce(function (t, b) { return t + b.baseAmt; }, 0);
+        const inFc = detail.reduce(function (t, d) { return t + d.baselineAmount; }, 0);
+        return { tableau: r2(tab), adjustmentsTab: r2(adjT), inForecast: r2(inFc), difference: r2(tab + adjT - inFc) };
+      })(),
       excludedNotInTableau: { accounts: Object.keys(excluded.accounts).length, cohorts: excluded.cohorts, value: excluded.value },
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,

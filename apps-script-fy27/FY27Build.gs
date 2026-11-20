@@ -88,10 +88,13 @@ function FY27_run() {
     const otc = FY27_gridToRows_(otcSheet.getDataRange().getValues(), { skipRawHeaderRow: "account_name" });
     const sf = FY27_gridToRows_(sfSheet.getDataRange().getValues());
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
+    const adjSheet = ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS);   // optional: negative adjustments live here
+    const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const result = FY27_buildForecast({
-      tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows, now: new Date()
+      tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
+      adjustments: adjustments.rows, now: new Date()
     }, cfg);
 
     FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
@@ -163,39 +166,43 @@ function FY27_writeReview_(ss, result) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear();
   const s = result.stats;
-  const top = [
-    ["FY" + FY27_CFG.FORECAST_YEAR + " forecast build - review", "", "", "", "", ""],
-    ["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1), "", ""],
-    ["Forecast lines", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched],
-    ["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments],
-    ["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value],
-    ["", "", "", "", "", ""],
-    ["Month coverage", "Booked $", "Forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]
-  ];
-  result.coverage.forEach(function (c) {
-    top.push([FY27_monthToDate_(c.month), c.booked, c.forecast, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
-  });
-  top.push(["", "", "", "", "", ""]);
-  top.push(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked"]);
-  const body = result.review.map(function (r) {
-    return [r.severity, r.flag, r.account, (r.productGroup + " / " + r.productName), FY27_monthToDate_(r.forecastMonth), r.valueIfBooked];
-  });
-  const rows = top.concat(body);
   const width = 6;
-  rows.forEach(function (r) { while (r.length < width) r.push(""); });
+  const rows = [];
+  const fmt = [];   // [rowIndex(1-based), colIndex, format]
+  const add = function (r) { while (r.length < width) r.push(""); rows.push(r); return rows.length; };
+
+  add(["FY" + FY27_CFG.FORECAST_YEAR + " forecast build - review"]);
+  let r = add(["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1)]);
+  fmt.push([r, 2, "yyyy-mm-dd hh:mm"]);
+  add(["Forecast rows", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched]);
+  r = add(["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
+  fmt.push([r, 2, "$#,##0"]);
+  r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
+  fmt.push([r, 6, "$#,##0"]);
+  add([]);
+  // baseline check: forecast baseline column should equal Tableau + Adjustments tab
+  const bl = s.baseline;
+  r = add(["Baseline check", "Tableau tab $", "Adjustments tab $", "Baseline in forecast $", "Difference $", ""]);
+  const blHdr = r;
+  r = add(["", bl.tableau, bl.adjustmentsTab, bl.inForecast, bl.difference]);
+  fmt.push([r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"], [r, 5, "$#,##0"]);
+  add(["(Difference = baseline whose forecast month falls outside " + FY27_CFG.FORECAST_YEAR + ", or rows with no forecast month)"]);
+  add([]);
+  const covHdr = add(["Month coverage", "Booked $", "Forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
+  result.coverage.forEach(function (c) {
+    const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
+    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"]);
+  });
+  add([]);
+  const flagHdr = add(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked"]);
+  result.review.forEach(function (x) {
+    const rr = add([x.severity, x.flag, x.account, x.productGroup + " / " + x.productName, FY27_monthToDate_(x.forecastMonth), x.valueIfBooked]);
+    fmt.push([rr, 5, "mmm-yy"], [rr, 6, "$#,##0"]);
+  });
   sh.getRange(1, 1, rows.length, width).setValues(rows);
+  fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
-  sh.getRange(7, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6");
-  const hdrRow = 7 + result.coverage.length + 2;
-  sh.getRange(hdrRow, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6");
-  sh.getRange(8, 1, result.coverage.length, 1).setNumberFormat("mmm-yy");
-  sh.getRange(8, 2, result.coverage.length, 2).setNumberFormat("$#,##0");
-  sh.getRange(5, 6).setNumberFormat("$#,##0");
-  sh.getRange(hdrRow + 1, 5, Math.max(1, body.length), 1).setNumberFormat("mmm-yy");
-  sh.getRange(hdrRow + 1, 6, Math.max(1, body.length), 1).setNumberFormat("$#,##0");
-  sh.getRange(2, 2).setNumberFormat("yyyy-mm-dd hh:mm");
-  sh.getRange(4, 2).setNumberFormat("$#,##0");
-  sh.setFrozenRows(0);
+  [blHdr, covHdr, flagHdr].forEach(function (h) { sh.getRange(h, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6"); });
   sh.setColumnWidth(2, 460);
   sh.autoResizeColumns(1, 1);
 }

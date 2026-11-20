@@ -17,6 +17,7 @@ const FY27_CFG = {
     // Outputs
     FORECAST: "Forecast",            // grouped: account x product group x month x credit type
     DETAIL: "Forecast Detail",       // ungrouped (one row per OTC cohort / baseline line) for tracing
+    ADJUSTMENTS: "Adjustments",     // negative adjustments (baseline only, never forecast); optional
     REVIEW: "Forecast Review",
     OVERRIDES: "Forecast Overrides"
   },

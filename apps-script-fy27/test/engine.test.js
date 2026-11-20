@@ -27,7 +27,7 @@ const otc = (o) => Object.assign({
   "Product Name": "RN Complete", "Product Group": "NURSING COURSE", "booking_id": ""
 }, o);
 
-const run = (t, o, sf, ov) => E.FY27_buildForecast({ tableau: t, otc: o, salesforce: sf || [], overrides: ov || [], now: new Date(2026, 10, 18) }, CFG);
+const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, salesforce: sf || [], overrides: ov || [], adjustments: adj || [], now: new Date(2026, 10, 18) }, CFG);
 
 // 1. Rebooking: baseline matches OTC cohort with code -> OTC amount, Rebooking, Renewal credit
 {
@@ -351,5 +351,50 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-02").forecastSource, "Tableau");
   assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-09").forecastSource, "OTC");
   assert.ok(r.lines.every((l) => ["Tableau", "OTC", "Manual Add On"].indexOf(l.forecastSource) >= 0));
+}
+// 24. Negative adjustments (Adjustments tab, "June 2026" text months): baseline kept, forecast 0.
+//     Baseline in forecast == Tableau tab + Adjustments tab.
+{
+  const F = "0014u000025NEGADJ";
+  const adjRow = { "Account Name with Student Org": "X", "Student Org ID": "001Z", "Account Name": "X", "FULL ID": F, "Rating": "Green",
+    "Booking Month": "June 2026", "Baseline Month": "June 2027", "Baseline Amount": "-195", "Sales Type": "New Logo",
+    "Product Group": "NURSING COURSE", "Product Name": "PN Prep Select", "Forecast Line Type": "Adjustment", __row: 2 };
+  const t = [tab({ "FULL ID": F, "Baseline Amount - Tableau": "1000", "Baseline Booking Month - Tableau": "6/1/2026", "Forecast Month - Tableau": "6/1/2027" })];
+  const r = run(t, [], [], [], [adjRow]);
+  const neg = r.lines.find((l) => l.baselineAmount === -195);
+  assert.ok(neg, "adjustment row present");
+  assert.strictEqual(neg.forecastMonth, "2027-06");
+  assert.strictEqual(neg.forecastAmount, 0);
+  assert.strictEqual(neg.expectation, "Not Expected");
+  assert.strictEqual(neg.adjustment, "TRUE");
+  assert.ok(neg.flags.some((f) => /Negative adjustment \(Adjustments tab\)/.test(f)));
+  assert.strictEqual(r.stats.baseline.tableau, 1000);
+  assert.strictEqual(r.stats.baseline.adjustmentsTab, -195);
+  assert.strictEqual(r.stats.baseline.inForecast, 805);
+  assert.strictEqual(r.stats.baseline.difference, 0);
+  // total forecast excludes the adjustment
+  assert.strictEqual(r.stats.total, 1000);
+}
+// 24b. A negative amount sitting in the Tableau tab itself is treated as a negative adjustment too
+{
+  const F = "0014u000025NEGTAB";
+  const r = run([tab({ "FULL ID": F, "Baseline Amount - Tableau": "-500" })], []);
+  assert.strictEqual(r.lines[0].forecastAmount, 0);
+  assert.strictEqual(r.lines[0].baselineAmount, -500);
+  assert.strictEqual(r.stats.total, 0);
+}
+// 25. Baseline check reports baseline that falls outside the forecast year
+{
+  const F = "0014u000025OUTSIDE";
+  const r = run([tab({ "FULL ID": F, "Baseline Amount - Tableau": "700", "Baseline Booking Month - Tableau": "5/1/2025", "Forecast Month - Tableau": "5/1/2026" })], []);
+  assert.strictEqual(r.stats.baseline.tableau, 700);
+  assert.strictEqual(r.stats.baseline.inForecast, 0);
+  assert.strictEqual(r.stats.baseline.difference, 700);
+}
+// 26. Month text parsing
+{
+  assert.strictEqual(E.FY27_monthKey_("June 2026"), "2026-06");
+  assert.strictEqual(E.FY27_monthKey_("Sep 2027"), "2027-09");
+  assert.strictEqual(E.FY27_monthKey_("May 2028 LPN to RN"), "");
 }
 console.log("all engine tests passed");
