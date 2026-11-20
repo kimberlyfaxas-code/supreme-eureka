@@ -57,6 +57,16 @@ const FY27_CFG = {
   //  Manual Add On = reserved for the manual add-on feature (not built yet)
   SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On" },
 
+  // Adjustments (extra / dropped students) are small. A line larger than this (positive or negative) is
+  // treated as a real booking that is already part of the baseline total, so it is never DERIVED as a
+  // positive adjustment. Large negative lines are still not forecast (a negative cannot recur) but are
+  // flagged for review.
+  ADJUSTMENT_MAX_ABS: 2000,
+
+  // The hidden "Adjustments" tab is not a complete list of individual 2026 adjustments, so it is not read
+  // by default. Set true to add its rows as baseline-only lines (never forecast).
+  USE_ADJUSTMENTS_TAB: false,
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

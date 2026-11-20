@@ -7,7 +7,8 @@ const cfgSrc = fs.readFileSync(path.join(__dirname, "../FY27Config.gs"), "utf8")
 const engSrc = fs.readFileSync(path.join(__dirname, "../FY27Engine.gs"), "utf8");
 const E = (function () { const module = { exports: {} }; new Function("module", engSrc)(module); return module.exports; })();
 const CFG = new Function(cfgSrc + "; return FY27_CFG;")();
-CFG.TAG_CREDIT = true;   // credit logic is tested with the switch on; see test 22 for off
+CFG.TAG_CREDIT = true;
+CFG.USE_ADJUSTMENTS_TAB = true;   // engine tests feed the Adjustments tab in explicitly   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
 
 const tab = (o) => Object.assign({
@@ -396,5 +397,22 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   assert.strictEqual(E.FY27_monthKey_("June 2026"), "2026-06");
   assert.strictEqual(E.FY27_monthKey_("Sep 2027"), "2027-09");
   assert.strictEqual(E.FY27_monthKey_("May 2028 LPN to RN"), "");
+}
+// 27. Lines over the cap are real bookings, not derived adjustments
+{
+  const F = "0014u000025BIGLINE";
+  const done = (total) => otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": String(total) });
+  const r = run([
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "9000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }),
+    tab({ "FULL ID": F, "Baseline Amount - Tableau": "2500", "Baseline Booking Month - Tableau": "3/1/2026", "Forecast Month - Tableau": "3/1/2027" })
+  ], [done(11500)]);
+  assert.strictEqual(r.stats.derivedAdjustments, 0);                 // $2,500 > $2,000 cap
+  assert.strictEqual(r.lines.find((l) => l.forecastMonth === "2027-03").forecastAmount, 2500);
+}
+// 28. Large negative: still forecast 0 but flagged LARGE
+{
+  const r = run([tab({ "FULL ID": "0014u000025BIGNEG", "Baseline Amount - Tableau": "-7605" })], []);
+  assert.strictEqual(r.lines[0].forecastAmount, 0);
+  assert.ok(r.lines[0].flags.some((f) => /LARGE/.test(f)));
 }
 console.log("all engine tests passed");

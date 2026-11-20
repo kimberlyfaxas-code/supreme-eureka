@@ -307,7 +307,7 @@ function FY27_buildForecast(input, cfg) {
 
   // Reconcile Tableau baseline-year bookings with OTC baseline-year actuals to find adjustments
   // (extra students added after a cohort started) - those must not recur.
-  const derivedAdj = FY27_deriveAdjustments_(base, otcAll, year - 1);
+  const derivedAdj = FY27_deriveAdjustments_(base, otcAll, year - 1, cfg.ADJUSTMENT_MAX_ABS);
 
   const history = FY27_buildHistory_(otcAll, cfg);
 
@@ -474,7 +474,9 @@ function FY27_buildForecast(input, cfg) {
     } else if (b && b.isAdj && b.baseAmt < 0) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
-      line.flags.push("Negative adjustment" + (b.fromAdjTab ? " (Adjustments tab)" : "") + ": in baseline, not forecast");
+      line.flags.push("Negative adjustment" + (b.fromAdjTab ? " (Adjustments tab)" : "") + ": in baseline, not forecast" +
+        (cfg.ADJUSTMENT_MAX_ABS > 0 && Math.abs(b.baseAmt) > cfg.ADJUSTMENT_MAX_ABS
+          ? " - LARGE (over $" + cfg.ADJUSTMENT_MAX_ABS.toLocaleString() + "): probably part of a booking total, review" : ""));
     }
     if (kind === "black") {
       line.expectation = "Not Expected";
@@ -793,8 +795,9 @@ function FY27_buildForecast(input, cfg) {
  * where no OTC cohort started) that closes the gap exactly. Those rows are marked as adjustments.
  * Exact-sum matching keeps false positives low. Mutates the baseline row objects; returns a count.
  */
-function FY27_deriveAdjustments_(base, otcAll, baseYear) {
+function FY27_deriveAdjustments_(base, otcAll, baseYear, maxAbs) {
   let found = 0;
+  const cap = maxAbs > 0 ? maxAbs : Infinity;
   const byAcct = {};
   base.forEach(function (b) {
     if (!b.fullId || b.isBOS || b.isAdj || !b.baseMonth || b.baseAmt <= 0 || FY27_yearOf_(b.baseMonth) !== baseYear) return;
@@ -824,7 +827,7 @@ function FY27_deriveAdjustments_(base, otcAll, baseYear) {
       const tol = Math.max(1, S * 0.002);
       if (have <= 0 || gap <= tol) return;
       const cands = rows.filter(function (b) {
-        return !claimed[b.row] && !otcByMonth[b.baseMonth] &&
+        return !claimed[b.row] && !otcByMonth[b.baseMonth] && b.baseAmt <= cap &&
           FY27_monthDiff_(b.baseMonth, m) > 0 && FY27_monthDiff_(b.baseMonth, m) <= 12;
       }).sort(function (x, y) { return x.baseMonth < y.baseMonth ? -1 : x.baseMonth > y.baseMonth ? 1 : 0; }).slice(0, 12);
       let best = null;

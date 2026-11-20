@@ -30,7 +30,10 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   Matched: forecast uses the OTC cohort month and students x price. Unmatched baseline: baseline value is
   carried at its Tableau forecast month (assumed rebooking). Unmatched OTC: its own line (new cohort / not in Tableau).
 - Cohort code present = rebooking; absent = roster chasing (first booking). Mixed = Mix.
-- Negative adjustments (the `Adjustments` tab, plus any negative amount in the Tableau tab) are baseline rows that are never
+- `ADJUSTMENT_MAX_ABS` ($2,000): lines larger than this are treated as real bookings already in the baseline total and are never
+  derived as positive adjustments; large negative lines are flagged LARGE for review. The `Adjustments` tab is not read by default
+  (`USE_ADJUSTMENTS_TAB`) because it does not list the individual 2026 adjustments.
+- Negative adjustments (any negative amount in the Tableau tab, plus the `Adjustments` tab if enabled) are baseline rows that are never
   forecast. The Review tab's Baseline check compares the forecast's Baseline Amount with Tableau + Adjustments tab; the difference
   should be 0 apart from rows whose forecast month falls outside the forecast year.
 - Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the

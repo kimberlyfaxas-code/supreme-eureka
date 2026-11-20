@@ -88,7 +88,7 @@ function FY27_run() {
     const otc = FY27_gridToRows_(otcSheet.getDataRange().getValues(), { skipRawHeaderRow: "account_name" });
     const sf = FY27_gridToRows_(sfSheet.getDataRange().getValues());
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
-    const adjSheet = ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS);   // optional: negative adjustments live here
+    const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
