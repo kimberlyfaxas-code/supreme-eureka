@@ -180,6 +180,8 @@ function FY27_writeReview_(ss, result) {
   fmt.push([r, 2, "$#,##0"]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
+  r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
+  fmt.push([r, 4, "$#,##0"]);
   add([]);
   // baseline check: forecast baseline column should equal Tableau + Adjustments tab
   const bl = s.baseline;

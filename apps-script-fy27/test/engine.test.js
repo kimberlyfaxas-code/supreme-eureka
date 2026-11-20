@@ -49,7 +49,7 @@ const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, sa
   assert.strictEqual(L.status, "Forecast");
 }
 
-// 2. Roster chasing (no code) -> New credit; gray rating suppresses it, black zeroes everything
+// 2. Gray/black: OTC roster-chasing cohorts are ignored (OTC may not know about teach-outs / dropped accounts)
 {
   const mk = (rating) => run(
     [tab({ "FULL ID": "0014u000025P7Y7AAK", "Rating": rating })],
@@ -57,18 +57,30 @@ const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, sa
   assert.strictEqual(mk("Green").lines[0].bookingType, "Roster Chasing");
   assert.strictEqual(mk("Green").lines[0].credit, "Renewal");   // Tableau col U says Renewal
   assert.strictEqual(mk("Green").lines[0].forecastAmount, 1000);
-  assert.strictEqual(mk("Gray").lines[0].forecastAmount, 0);
-  assert.strictEqual(mk("Gray").lines[0].expectation, "Not Expected");
-  assert.strictEqual(mk("Black").lines[0].forecastAmount, 0);
-  assert.strictEqual(mk("Black").lines[0].valueIfBooked, 1000);
+  // gray: the roster-chasing cohort is dropped; the baseline repeats as an assumed rebooking
+  const g = mk("Gray");
+  assert.strictEqual(g.lines.length, 1);
+  assert.strictEqual(g.lines[0].bookingType, "Rebooking (assumed)");
+  assert.strictEqual(g.lines[0].forecastAmount, 1000);
+  assert.strictEqual(g.stats.ignoredRosterChasing.cohorts, 1);
+  // black: no OTC-backed rebooking exists, so nothing is forecast (value kept)
+  const b = mk("Black");
+  assert.strictEqual(b.lines[0].forecastAmount, 0);
+  assert.strictEqual(b.lines[0].expectation, "Not Expected");
+  assert.strictEqual(b.lines[0].valueIfBooked, 1000);
+  assert.ok(b.lines[0].flags.some((f) => /teach-out/.test(f)));
 }
 
-// 3. Gray still allows rebookings
+// 3. Gray AND black still forecast OTC rebookings (existing cohorts with a code finishing their term)
 {
-  const r = run(
-    [tab({ "FULL ID": "0014u000025P7Y7AAK", "Rating": "Gray" })],
-    [otc({ "Full ID": "0014u000025P7Y7AAK", "Cohort Code (if present, then this is a rebooking)": "X" })]);
-  assert.strictEqual(r.lines[0].forecastAmount, 1000);
+  ["Gray", "Black"].forEach((rating) => {
+    const r = run(
+      [tab({ "FULL ID": "0014u000025P7Y7AAK", "Rating": rating })],
+      [otc({ "Full ID": "0014u000025P7Y7AAK", "Cohort Code (if present, then this is a rebooking)": "X" })]);
+    assert.strictEqual(r.lines[0].forecastAmount, 1000, rating);
+    assert.strictEqual(r.lines[0].bookingType, "Rebooking", rating);
+    assert.strictEqual(r.lines[0].expectation, "Expected", rating);
+  });
 }
 
 // 4. CE Hub: contract covers 2027 but no upcoming cohort -> baseline line + High flag

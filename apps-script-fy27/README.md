@@ -46,7 +46,10 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
   baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
   missing from Tableau entirely are exempt and flagged instead.
-- Rating: Gray drops roster-chasing lines (rebookings only); Black zeroes the client (Value If Booked is kept).
+- Gray / black ratings (`IGNORE_ROSTER_CHASING_GRAY_BLACK`): OTC may not know about teach-outs or dropped accounts, so OTC roster-chasing
+  cohorts (no cohort code) are ignored and only rebookings of existing cohorts are used. Gray repeats the baseline by assumption; black
+  does not (only OTC-backed rebookings are forecast). Ignored cohorts are counted on the Review tab.
+- (older note) Rating: Gray drops roster-chasing lines (rebookings only); Black zeroes the client (Value If Booked is kept).
 - Positive adjustments are tagged Not Expected. Adjustments are also derived by reconciling Tableau baseline-year bookings with OTC
   baseline-year actuals: if OTC cohorts starting in month M total more than Tableau's month-M amount and later Tableau rows
   (months with no OTC cohort start) close the gap exactly, those rows are added students, not recurring bookings, and forecast $0.

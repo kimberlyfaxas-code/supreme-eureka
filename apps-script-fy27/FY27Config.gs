@@ -88,6 +88,11 @@ const FY27_CFG = {
   // or an OTC order with a $0 estimate). Booked OTC actuals are never second-guessed.
   MATCH_AMOUNT_BAND: [0.5, 2.0],
 
+  // Gray / black accounts: ignore OTC roster-chasing cohorts (no cohort code). OTC may not know about
+  // teach-outs or dropped accounts, so only rebookings of existing cohorts are used. Black accounts also do not
+  // repeat their baseline by assumption; only OTC-backed rebookings are forecast.
+  IGNORE_ROSTER_CHASING_GRAY_BLACK: true,
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

@@ -329,8 +329,23 @@ function FY27_buildForecast(input, cfg) {
     if (!contractEnd[k] || o.contractEnd > contractEnd[k]) contractEnd[k] = o.contractEnd;
   });
 
+  // Gray / black accounts: OTC may not know about teach-outs or dropped accounts, so OTC roster-chasing cohorts
+  // (no cohort code = first booking) are ignored for them; only rebookings of existing cohorts are used.
+  const ratingByFull = {};
+  base.forEach(function (b) { if (b.fullId && b.rating && !ratingByFull[b.fullId]) ratingByFull[b.fullId] = b.rating; });
+  function restrictedAccount(fullId) {
+    const r = FY27_str_(ratingByFull[fullId] || (sfById[fullId] || {})["Rating"]).toLowerCase();
+    return r === "gray" || r === "grey" || r === "black";
+  }
+  const ignoredRoster = { cohorts: 0, value: 0 };
   // OTC rows that land in the forecast year (not flagged DNE)
-  const target = otcAll.filter(function (o) { return !o.dne && FY27_yearOf_(o.month) === year; });
+  const target = otcAll.filter(function (o) { return !o.dne && FY27_yearOf_(o.month) === year; }).filter(function (o) {
+    if (cfg.IGNORE_ROSTER_CHASING_GRAY_BLACK && !o.booked && !o.cohortCode && restrictedAccount(o.fullId)) {
+      ignoredRoster.cohorts++; ignoredRoster.value += o.total;
+      return false;
+    }
+    return true;
+  });
   const tableauIds = {};
   base.forEach(function (b) { if (b.fullId) tableauIds[b.fullId] = true; });
 
@@ -484,14 +499,16 @@ function FY27_buildForecast(input, cfg) {
         (cfg.ADJUSTMENT_MAX_ABS > 0 && Math.abs(b.baseAmt) > cfg.ADJUSTMENT_MAX_ABS
           ? " - LARGE (over $" + cfg.ADJUSTMENT_MAX_ABS.toLocaleString() + "): probably part of a booking total, review" : ""));
     }
-    if (kind === "black") {
+    if (kind === "black" && line.bookingType === "Rebooking (assumed)" && line.status !== "Booked") {
+      // teach-out: only cohorts that exist in OTC (rebookings with a cohort code) are expected to finish their term;
+      // a baseline repeated "by assumption" is not evidence of one
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
-      line.flags.push("Black rating: no upcoming bookings expected from this client");
-    } else if (kind === "gray" && line.bookingType === "Roster Chasing" && line.status !== "Booked") {
+      line.flags.push("Black rating (teach-out): only existing OTC cohorts are forecast, baseline not repeated");
+    } else if ((kind === "gray" || kind === "black") && line.bookingType === "Roster Chasing" && line.status !== "Booked") {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
-      line.flags.push("Gray rating: no new cohorts expected, only rebookings");
+      line.flags.push((kind === "black" ? "Black" : "Gray") + " rating: no new cohorts expected, only rebookings");
     }
   }
 
@@ -783,6 +800,7 @@ function FY27_buildForecast(input, cfg) {
       actualsThrough: actualsThrough,
       lines: lines.length,
       detailLines: detail.length,
+      ignoredRosterChasing: ignoredRoster,
       derivedAdjustments: derivedAdj,
       likelyAdjustments: likelyAdj,
       baseline: (function () {
