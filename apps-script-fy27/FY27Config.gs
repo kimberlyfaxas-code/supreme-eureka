@@ -101,25 +101,27 @@ const FY27_CFG = {
   // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
   AT_RISK_BASELINE_ONLY: true,
   AT_RISK_CATEGORY: "At Risk",
-  // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the 2026 backtest, where the
-  // share of baseline dollars the team kept was: Med 2%, contract ended 33%, Red 43%, iHuman 68%, covers-year 68%, no OTC contract 93%.
+  // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the AS-OF 2026 backtest (what we would
+  // have known at the start of the year), where the share of baseline dollars the team kept was: Med 25%, contract ended 28%,
+  // Red 55%, covers-year 81%, iHuman 85%, no OTC contract data 90%. (An earlier backtest that could see 2026 actuals showed much
+  // lower keep rates; that one was too pessimistic and under-forecast by 15%.)
   // Fields: group (product group), rating, ended (contract ended before the month), noContract (no OTC contract data), weight.
   AT_RISK_WEIGHT_RULES: [
-    { name: "Med course, no cohort",            group: "MED COURSE", weight: 0.10 },
+    { name: "Med course, no cohort",            group: "MED COURSE", weight: 0.25 },
     { name: "Contract ended before month",      ended: true,         weight: 0.30 },
-    { name: "Red rating, no cohort",            rating: "red",       weight: 0.40 },
-    { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.65 },
+    { name: "Red rating, no cohort",            rating: "red",       weight: 0.55 },
+    { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.85 },
     { name: "No OTC contract data",             noContract: true,     weight: 0.90 },
-    { name: "Contract covers year, no cohort",  covers: true,         weight: 0.65 }
+    { name: "Contract covers year, no cohort",  covers: true,         weight: 0.80 }
   ],
 
   // How a Tableau baseline row's amount is set when OTC cohorts match it:
-  //  "otc"      = OTC cohort amounts (students x price, trend-adjusted). In the 2026 backtest this ran ~17% above what the
-  //               team ended up with, and trend-adjusted lines were worse than just repeating the baseline.
+  //  "otc"      = OTC cohort amounts (students x price, trend-adjusted).
   //  "min"      = OTC cohort amounts, scaled DOWN when their total exceeds the Tableau baseline (never above Tableau). No trend.
-  //  "baseline" = Tableau baseline total, split across the OTC cohorts by their share (OTC used only for timing). No trend.
-  // Booked OTC actuals are never scaled.
-  AMOUNT_BASIS: "min",
+  //  "baseline" = Tableau baseline total, split across the OTC cohorts by their share (OTC used for timing/split only). No trend.
+  // As-of 2026 backtest, line-level error vs what the team ended with ($ across 551 kept lines): baseline 2.27M, min 2.35M,
+  // OTC estimate 3.04M. Tableau baseline total was within 0.4% of the team's total. Booked OTC actuals are never scaled.
+  AMOUNT_BASIS: "baseline",
   WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
 
   // Backtest: pretend it is the start of the backtest year. OTC orders that were actually booked during that year are

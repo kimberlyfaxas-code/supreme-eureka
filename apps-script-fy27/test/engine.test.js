@@ -563,8 +563,8 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(byId(F).expectation, "At Risk");
   assert.strictEqual(byId(F).forecastAmount, 1000);
   assert.strictEqual(byId(F).segment, "Contract covers year, no cohort");
-  assert.strictEqual(byId(F).weight, 0.65);
-  assert.strictEqual(byId(F).weightedAmount, 650);
+  assert.strictEqual(byId(F).weight, 0.80);
+  assert.strictEqual(byId(F).weightedAmount, 800);
   assert.strictEqual(byId(G).expectation, "Expected");
   assert.strictEqual(byId(G).weightedAmount, 1000);
   assert.strictEqual(byId(P).expectation, "Renewal Pending");
@@ -572,7 +572,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(byId(P).weightedAmount, 900);
   assert.strictEqual(r.lines.find((l) => l.studentOrgId === "A123456").expectation, "Expected");
   assert.strictEqual(r.stats.total, 4000);
-  assert.strictEqual(r.stats.totalWeighted, 650 + 1000 + 900 + 1000);
+  assert.strictEqual(r.stats.totalWeighted, 800 + 1000 + 900 + 1000);
   const jan = r.coverage.reduce((s, c) => s + c.weighted, 0);
   assert.strictEqual(jan, r.stats.totalWeighted);
 }
@@ -601,16 +601,16 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const done = (end, group) => otc({ "Full ID": "0014u000025SEGMENTS", "Product Group": group || "NURSING COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01",
     "order_estimated_start_date": "2026-02-01", "Contract End Date": end });
   const med = mk({ "Product Group": "MED COURSE" }, [done("2028-01-01", "MED COURSE")]);
-  assert.strictEqual(med.lines[0].weight, 0.10);
-  assert.strictEqual(med.lines[0].weightedAmount, 100);
+  assert.strictEqual(med.lines[0].weight, 0.25);
+  assert.strictEqual(med.lines[0].weightedAmount, 250);
   const ended = mk({}, [done("2026-12-01")]);
   assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
   assert.strictEqual(ended.lines[0].expectation, "Renewal Pending");
   assert.strictEqual(ended.lines[0].weightedAmount, 300);
   const red = mk({ "Rating": "Red" }, [done("2028-01-01")]);
-  assert.strictEqual(red.lines[0].weight, 0.40);
+  assert.strictEqual(red.lines[0].weight, 0.55);
   const ih = mk({ "Product Group": "IHUMAN" }, [done("2028-01-01", "IHUMAN")]);
-  assert.strictEqual(ih.lines[0].weight, 0.65);
+  assert.strictEqual(ih.lines[0].weight, 0.85);
 }
 // 38. Amount basis: "min" never exceeds the Tableau baseline; "baseline" splits the baseline across cohorts; "otc" keeps OTC
 {
