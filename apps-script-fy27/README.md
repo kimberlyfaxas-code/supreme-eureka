@@ -3,6 +3,11 @@
 Separate from `../apps-script/` (the FY2026 dashboard tooling, left untouched).
 
 ## Install (in the FY2027 sheet: Extensions > Apps Script)
+**Easiest, and the way to avoid "Identifier ... has already been declared":** delete every file in the project and paste `dist/FY27All.gs`
+(all four files combined) into ONE file. For every update, replace that one file's whole contents (Ctrl+A, paste). Regenerate it with
+`./build-bundle.sh` after changing any source file.
+
+Or, with separate files:
 Add four script files with the contents of: `FY27Config.gs`, `FY27Engine.gs`, `FY27Build.gs`, `FY27Backtest.gs`.
 Reload the sheet; a **FY27 Forecast** menu appears.
 
