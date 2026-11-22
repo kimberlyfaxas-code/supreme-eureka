@@ -48,6 +48,12 @@ const FY27_CFG = {
   // in the baseline year is shown as Not Expected (value kept in "Value If Booked"). Accounts that are
   // not in Tableau at all are exempt: those are flagged for review instead.
   EXCLUDE_UNBOOKED_PROGRAMS: true,
+  // What happens to a FIRST-TIME OTC cohort (no cohort code) in a program that had no booking at that account in the baseline year:
+  //  "weight" = flag it, set it At Risk and weight it by DORMANT_PROGRAM_WEIGHT (a CSM decides)
+  //  "zero"   = Not Expected, $0 (value kept in Value If Booked)
+  // Cohorts that already have a code are existing classes and are never treated as dormant.
+  DORMANT_PROGRAM_ACTION: "weight",
+  DORMANT_PROGRAM_WEIGHT: 0.25,   // placeholder, not yet calibrated: the backtest compares baseline lines, not OTC-only cohorts
 
   // Accounts with no Tableau rows (no baseline-year bookings) are left out of the forecast.
   // Set true to bring their OTC cohorts in, flagged "Not in Tableau".

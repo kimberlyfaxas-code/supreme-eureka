@@ -240,11 +240,15 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
   const pn = r.lines.find((l) => l.productName === "NCLEX PN Enrichment");
   assert.strictEqual(pn.credit, "New");   // in Tableau, but cohort has no baseline line -> new sales credit
   assert.ok(/new sales credit/.test(pn.creditBasis));
-  // PN program did not book in 2026 (only RN did) -> not forecast, value kept
-  assert.strictEqual(pn.expectation, "Not Expected");
-  assert.strictEqual(pn.forecastAmount, 0);
-  assert.strictEqual(pn.valueIfBooked, 1500);
+  // PN program did not book in 2026 (only RN did) and this is a first-time cohort: flagged, At Risk, weighted down (CSM decides)
+  assert.strictEqual(pn.expectation, "At Risk");
+  assert.strictEqual(pn.forecastAmount, 1500);
+  assert.strictEqual(pn.weightedAmount, 375);
   assert.ok(pn.flags.some((f) => /No 2026 booking for this program \(PN\)/.test(f)));
+  CFG.DORMANT_PROGRAM_ACTION = "zero";
+  const pnz = run(t, o).lines.find((l) => l.productName === "NCLEX PN Enrichment");
+  assert.strictEqual(pnz.expectation, "Not Expected"); assert.strictEqual(pnz.forecastAmount, 0); assert.strictEqual(pnz.valueIfBooked, 1500);
+  CFG.DORMANT_PROGRAM_ACTION = "weight";
   // RN lines are untouched
   assert.ok(rn.every((l) => l.expectation === "Expected"));
 }
@@ -356,8 +360,9 @@ CFG.INCLUDE_NOT_IN_TABLEAU = false;
     [otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Product Name": "Curriculum Plus", "program": "NCLEX RN" }),
      otc({ "Full ID": F, "order_estimated_start_date": "2027-08-01", "Product Name": "NCLEX PN Enrichment/Inst 4 Month", "program": "NCLEX PN", "cohort_name": "Aug 2027 PN" })]);
   const pn = r.lines.find((l) => l.forecastMonth === "2027-08");
-  assert.strictEqual(pn.expectation, "Not Expected");
-  assert.strictEqual(pn.forecastAmount, 0);
+  assert.strictEqual(pn.expectation, "At Risk");        // flagged and weighted down, not zeroed
+  assert.strictEqual(pn.weight, 0.25);
+  assert.strictEqual(pn.forecastAmount, 1000);
 }
 // 22. Credit off: no credit values, and rows are not split by it
 {
@@ -675,7 +680,11 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const blk = run([tab({ "FULL ID": "0014u000025VOCAB3", "Rating": "Black" })], []);
   assert.strictEqual(blk.lines[0].reason, "Lost");
   const dorm = run([tab({ "FULL ID": "0014u000025VOCAB4" })], [otc({ "Full ID": "0014u000025VOCAB4", "Product Name": "NCLEX PN Enrichment", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01" })]);
-  assert.strictEqual(dorm.lines.find((l) => l.productName === "NCLEX PN Enrichment").reason, "No Revenue This Term");
+  assert.strictEqual(dorm.lines.find((l) => l.productName === "NCLEX PN Enrichment").expectation, "At Risk");
+  CFG.DORMANT_PROGRAM_ACTION = "zero";
+  const dz = run([tab({ "FULL ID": "0014u000025VOCAB4" })], [otc({ "Full ID": "0014u000025VOCAB4", "Product Name": "NCLEX PN Enrichment", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01" })]);
+  assert.strictEqual(dz.lines.find((l) => l.productName === "NCLEX PN Enrichment").reason, "No Revenue This Term");
+  CFG.DORMANT_PROGRAM_ACTION = "weight";
   // reason is blank unless the line is Not Expected
   assert.ok(r.lines.every((l) => l.reason === ""));
 }
@@ -749,5 +758,32 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(run(t(), prev.concat(next)).lines.filter((l) => l.forecastSource === "OTC").length, 0);
   CFG.EXTRA_COHORTS = true;
   CFG.AMOUNT_BASIS = "otc";
+}
+// 46. Capital Idea case: an existing PN class (cohort code present) is never "dormant", even if the PN booking is not in this export yet
+{
+  const F = "0014u000025CAPIDEA";
+  const t = [tab({ "FULL ID": F, "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })];   // RN baseline only
+  const rn = otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Product Name": "Curriculum Plus", "program": "NCLEX RN" });
+  const coded = otc({ "Full ID": F, "order_estimated_start_date": "2027-08-01", "Product Name": "Curriculum Plus", "program": "NCLEX PN", "cohort_name": "Dec 2026 PN",
+    "Cohort Code (if present, then this is a rebooking)": "QNWC26004" });
+  const first = otc({ "Full ID": F, "order_estimated_start_date": "2027-08-01", "Product Name": "Curriculum Plus", "program": "NCLEX PN", "cohort_name": "PN Self Paced Code" });
+  const lc = run(t, [rn, coded]).lines.find((l) => l.forecastMonth === "2027-08");
+  assert.strictEqual(lc.expectation, "Expected");
+  assert.ok(!lc.flags.some((f) => /No 2026 booking/.test(f)));
+  const lf = run(t, [rn, first]).lines.find((l) => l.forecastMonth === "2027-08");
+  assert.strictEqual(lf.expectation, "At Risk");
+  // once the PN booking is in the data (Tableau PN line), the first-time cohort is a normal new class
+  const t2 = t.concat([tab({ "FULL ID": F, "Product Name": "PN Prep Select", "Baseline Booking Month - Tableau": "11/1/2026", "Forecast Month - Tableau": "11/1/2027", "Baseline Amount - Tableau": "800" })]);
+  const l2 = run(t2, [rn, first]).lines.find((l) => l.forecastMonth === "2027-08");
+  assert.strictEqual(l2.expectation, "Expected");
+}
+// 47. Program-first classification: product name with no RN/PN signal still classifies from the `program` field
+{
+  assert.strictEqual(E.FY27_family_("NURSING COURSE", "NCLEX PN"), "PN");
+  const F = "0014u000025PROGONLY";
+  const r = run([tab({ "FULL ID": F, "Product Name": "PN Prep Select", "Baseline Booking Month - Tableau": "8/1/2026", "Forecast Month - Tableau": "8/1/2027" })],
+    [otc({ "Full ID": F, "Product Name": "Curriculum Plus", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01" })]);
+  assert.strictEqual(r.lines.filter((l) => l.forecastSource === "OTC").length, 0, "matched to the PN baseline row by program, not left as OTC-only");
+  assert.strictEqual(r.lines[0].forecastSource, "Tableau");
 }
 console.log("all engine tests passed");

@@ -58,7 +58,9 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   cohorts by their OTC share (OTC supplies timing). "min" caps OTC amounts at Tableau; "otc" uses OTC amounts + trend. "otc" = OTC amounts + trend, "baseline" = Tableau total split across cohorts. In the backtest OTC/trend amounts
   ran ~17% above what the team ended with, and trend-adjusted lines were worse than repeating the baseline.
 - Backtest runs "as of" the start of 2026 (`BT_AS_OF`): 2026 orders are treated as estimates and new cohort codes removed.
-- Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
+- Dormant programs (`EXCLUDE_UNBOOKED_PROGRAMS`, `DORMANT_PROGRAM_ACTION`): a FIRST-TIME OTC cohort (no cohort code) in a program (the OTC `program` field, e.g. NCLEX RN / NCLEX PN)
+  with no booking at that account in the baseline year is flagged, set At Risk and weighted down (`DORMANT_PROGRAM_WEIGHT`, placeholder 25%) so a CSM decides; set
+  the action to `zero` to make it Not Expected. A coded cohort is an existing class and is never dormant. (older behavior note:) an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
   baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
   missing from Tableau entirely are exempt and flagged instead.
 - Gray / black ratings come from the Tableau Bookings Data tab only (the Salesforce tab's rating is not used). (`IGNORE_ROSTER_CHASING_GRAY_BLACK`): OTC may not know about teach-outs or dropped accounts, so OTC roster-chasing

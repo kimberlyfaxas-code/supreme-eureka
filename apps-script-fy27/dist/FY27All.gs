@@ -53,6 +53,12 @@ const FY27_CFG = {
   // in the baseline year is shown as Not Expected (value kept in "Value If Booked"). Accounts that are
   // not in Tableau at all are exempt: those are flagged for review instead.
   EXCLUDE_UNBOOKED_PROGRAMS: true,
+  // What happens to a FIRST-TIME OTC cohort (no cohort code) in a program that had no booking at that account in the baseline year:
+  //  "weight" = flag it, set it At Risk and weight it by DORMANT_PROGRAM_WEIGHT (a CSM decides)
+  //  "zero"   = Not Expected, $0 (value kept in Value If Booked)
+  // Cohorts that already have a code are existing classes and are never treated as dormant.
+  DORMANT_PROGRAM_ACTION: "weight",
+  DORMANT_PROGRAM_WEIGHT: 0.25,   // placeholder, not yet calibrated: the backtest compares baseline lines, not OTC-only cohorts
 
   // Accounts with no Tableau rows (no baseline-year bookings) are left out of the forecast.
   // Set true to bring their OTC cohorts in, flagged "Not in Tableau".
@@ -334,7 +340,10 @@ function FY27_family_(group, name) {
 }
 /** OTC product names are often just "Curriculum Plus"; the program ("NCLEX RN") and cohort name say RN vs PN. */
 function FY27_otcFamily_(group, productName, program, cohortName) {
-  let f = FY27_family_(group, productName + " " + program);
+  // the structured `program` field ("NCLEX RN" / "NCLEX PN" / "USMLE Step 1" ...) is stable; product names are not (9,080 of 13,070
+  // nursing rows have names with no RN/PN in them). Program first, then the name, then the cohort name.
+  let f = FY27_family_(group, program);
+  if (f === "Other") f = FY27_family_(group, productName);
   if (f === "Other") f = FY27_family_(group, cohortName);
   return f;
 }
@@ -1002,13 +1011,23 @@ function FY27_buildForecast(input, cfg) {
       : "No matching " + (year - 1) + " baseline for this cohort - new cohort or product");
     applyRatingAndAdj(L, null, !o.booked);
     // Existing account, but this program did not book last year -> do not add it for next year
-    if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
+    // Only FIRST-TIME cohorts (no cohort code) can be a dormant program: a cohort code exists only once the class has booked, so a coded
+    // cohort is an existing class and the program is alive (e.g. Capital Idea PN, booked last week, has codes).
+    if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !o.isRebooking && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
       const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
-      L.expectation = "Not Expected";
-      L.reason = "No Revenue This Term";
-      L.forecastAmount = 0;
-      L.flags.push("No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "") +
-        " - cohort in OTC not forecast. Override if the program is returning");
+      const noteBase = "No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "");
+      if ((cfg.DORMANT_PROGRAM_ACTION || "weight") === "zero") {
+        L.expectation = "Not Expected";
+        L.reason = "No Revenue This Term";
+        L.forecastAmount = 0;
+        L.flags.push(noteBase + " - cohort in OTC not forecast. Override if the program is returning");
+      } else {
+        // flag and weight down; a CSM decides
+        L.expectation = cfg.AT_RISK_CATEGORY;
+        L.weightOverride = cfg.DORMANT_PROGRAM_WEIGHT;
+        L.segment = "Program not booked in " + (year - 1);
+        L.flags.push(noteBase + " - first-time cohort, weighted down. CSM: confirm the program is running, or set Not Expected");
+      }
     }
     lines.push(L);
   });
