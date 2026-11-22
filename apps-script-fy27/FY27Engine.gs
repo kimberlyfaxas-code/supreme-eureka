@@ -442,7 +442,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", flags: [], key: ""
+      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
     return l;
@@ -646,6 +646,8 @@ function FY27_buildForecast(input, cfg) {
     } else {
       L.flags.push("Contract covers " + b.fcMonth + " (ends " + cEnd + ") but no upcoming cohort in OTC - check");
     }
+    // repeated by assumption, no OTC cohort behind it: At Risk (pending contracts keep their own status)
+    if (cfg.AT_RISK_BASELINE_ONLY && L.expectation === "Expected" && !b.isBOS && !b.isAdj) L.expectation = cfg.AT_RISK_CATEGORY;
     applyRatingAndAdj(L, b, false);
     lines.push(L);
     writeback[b.row] = {
@@ -760,6 +762,12 @@ function FY27_buildForecast(input, cfg) {
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
+  const weightOf = function (L) {
+    const w = cfg.WEIGHTS && cfg.WEIGHTS[L.expectation];
+    return w === undefined ? 1 : w;
+  };
+  lines.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
+  detail.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
 
   lines.forEach(function (L) { L.forecastQuarter = FY27_quarterOf_(L.forecastMonth); });
   lines.sort(function (a, b) {
@@ -784,11 +792,11 @@ function FY27_buildForecast(input, cfg) {
 
   // monthly coverage: how complete is each month?
   const cov = {};
-  for (let m = 1; m <= 12; m++) cov[year + "-" + FY27_pad2_(m)] = { month: year + "-" + FY27_pad2_(m), booked: 0, forecast: 0, bookedLines: 0, forecastLines: 0, baselineIncomplete: false };
+  for (let m = 1; m <= 12; m++) cov[year + "-" + FY27_pad2_(m)] = { month: year + "-" + FY27_pad2_(m), booked: 0, forecast: 0, bookedLines: 0, forecastLines: 0, baselineIncomplete: false, weighted: 0 };
   lines.forEach(function (L) {
     const c = cov[L.forecastMonth];
     if (!c) return;
-    if (L.status === "Booked") { c.booked += L.forecastAmount; c.bookedLines++; } else { c.forecast += L.forecastAmount; c.forecastLines++; }
+    if (L.status === "Booked") { c.booked += L.forecastAmount; c.bookedLines++; } else { c.forecast += L.forecastAmount; c.forecastLines++; c.weighted += L.weightedAmount; }
     if (L.flags.some(function (f) { return f.indexOf("not complete yet") >= 0; })) c.baselineIncomplete = true;
   });
 
@@ -816,7 +824,8 @@ function FY27_buildForecast(input, cfg) {
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,
       overridesApplied: overridesApplied,
-      total: lines.reduce(function (s, L) { return s + L.forecastAmount; }, 0)
+      total: lines.reduce(function (s, L) { return s + L.forecastAmount; }, 0),
+      totalWeighted: FY27_round2_(lines.reduce(function (s, L) { return s + L.weightedAmount; }, 0))
     }
   };
 }

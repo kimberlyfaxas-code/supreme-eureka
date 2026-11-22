@@ -95,6 +95,14 @@ const FY27_CFG = {
   // repeat their baseline by assumption; only OTC-backed rebookings are forecast.
   IGNORE_ROSTER_CHASING_GRAY_BLACK: true,
 
+  // At Risk + weighting. Lines with no OTC cohort behind them (baseline repeated by assumption) are the weakest
+  // evidence: in the 2026 backtest the team zeroed about half of them. They are marked At Risk, and totals use a
+  // WEIGHTED amount (Forecast Amount x weight by Forecast Category) so At Risk is not counted at full value.
+  // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
+  AT_RISK_BASELINE_ONLY: true,
+  AT_RISK_CATEGORY: "At Risk",
+  WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
 

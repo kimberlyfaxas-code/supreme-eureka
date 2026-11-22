@@ -111,7 +111,7 @@ function FY27_backtest_(input, cfg) {
     if (d.cohortCodes) e.hasCode = true;
     if (d.cohortNames || d.cohortCodes) e.cohortTotal += d.forecastAmount;
     if (d.contractEnd && d.contractEnd > e.contractEnd) e.contractEnd = d.contractEnd;
-    e.baseline += d.baselineAmount; e.forecast += d.forecastAmount;
+    e.baseline += d.baselineAmount; e.forecast += d.forecastAmount; e.weighted = (e.weighted || 0) + d.weightedAmount;
     if (d.cohortNames || d.cohortCodes) e.cohort = true;
     if (/^A\d+$/.test(FY27_str_(d.studentOrgId))) e.bos = true;
     d.flags.forEach(function (f) { if (e.flags.indexOf(f) < 0) e.flags.push(f); });
@@ -199,8 +199,8 @@ function FY27_backtest_(input, cfg) {
       booked2024SameMonth: hh ? (hh.months[mo.slice(5, 7)] ? "Y" : "N") : "(no 2024 data)",
       total2024: hh ? hh.total : "", flags: e.flags.join(" | ")
     });
-    const m = monthly[mo] || (monthly[mo] = { baseline: 0, engine: 0, team: 0 });
-    m.baseline += base; m.engine += e.forecast; m.team += t.forecast;
+    const m = monthly[mo] || (monthly[mo] = { baseline: 0, engine: 0, engineWeighted: 0, team: 0 });
+    m.baseline += base; m.engine += e.forecast; m.engineWeighted += e.weighted || 0; m.team += t.forecast;
     if (eb !== tb) {
       const cats = Object.keys(t.cats).sort(function (a, b) { return t.cats[b] - t.cats[a]; });
       detail.push({

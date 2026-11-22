@@ -56,6 +56,8 @@ const FY27_FORECAST_COLUMNS = [
   ["Baseline vs OTC Variance", "adjVariance", "money"],
   ["Value If Booked", "valueIfBooked", "money"],
   ["Forecast Amount", "forecastAmount", "money"],
+  ["Forecast Weight", "weight", "pct"],
+  ["Weighted Forecast Amount", "weightedAmount", "money"],
   ["Est. Students (OTC)", "estStudents"],
   ["Trend-Adjusted Students", "adjStudents"],
   ["Price Per Student", "price", "money"],
@@ -158,6 +160,7 @@ function FY27_writeForecast_(ss, lines, name) {
     const rng = sh.getRange(2, i + 1, out.length - 1, 1);
     if (c[2] === "month") rng.setNumberFormat("mmm-yy");
     if (c[2] === "money") rng.setNumberFormat("$#,##0");
+    if (c[2] === "pct") rng.setNumberFormat("0%");
   });
   sh.autoResizeColumns(1, Math.min(headers.length, 20));
 }
@@ -167,7 +170,7 @@ function FY27_writeReview_(ss, result) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear();
   const s = result.stats;
-  const width = 6;
+  const width = 7;
   const rows = [];
   const fmt = [];   // [rowIndex(1-based), colIndex, format]
   const add = function (r) { while (r.length < width) r.push(""); rows.push(r); return rows.length; };
@@ -176,8 +179,8 @@ function FY27_writeReview_(ss, result) {
   let r = add(["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1)]);
   fmt.push([r, 2, "yyyy-mm-dd hh:mm"]);
   add(["Forecast rows", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched]);
-  r = add(["Total forecast $", s.total, "Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
-  fmt.push([r, 2, "$#,##0"]);
+  r = add(["Total forecast $ (full value)", s.total, "Weighted total $ (At Risk etc. weighted)", s.totalWeighted, "Overrides applied", s.overridesApplied, "Adjustments derived", s.derivedAdjustments]);
+  fmt.push([r, 2, "$#,##0"], [r, 4, "$#,##0"]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
   r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
@@ -191,13 +194,13 @@ function FY27_writeReview_(ss, result) {
   fmt.push([r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"], [r, 5, "$#,##0"]);
   add(["(Difference = baseline whose forecast month falls outside " + FY27_CFG.FORECAST_YEAR + ", or rows with no forecast month)"]);
   add([]);
-  const covHdr = add(["Month coverage", "Booked $", "Forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
+  const covHdr = add(["Month coverage", "Booked $", "Forecast $ (full value)", "Weighted forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
   result.coverage.forEach(function (c) {
-    const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
-    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"]);
+    const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.weighted, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
+    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"]);
   });
   add([]);
-  const flagHdr = add(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked"]);
+  const flagHdr = add(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked", ""]);
   result.review.forEach(function (x) {
     const rr = add([x.severity, x.flag, x.account, x.productGroup + " / " + x.productName, FY27_monthToDate_(x.forecastMonth), x.valueIfBooked]);
     fmt.push([rr, 5, "mmm-yy"], [rr, 6, "$#,##0"]);
@@ -353,12 +356,12 @@ function FY27_writeBacktest_(ss, bt) {
     });
   });
   add([]);
-  hdr = add(["2026 month", "Baseline $", "Engine forecast $", "Team final forecast $", "", "", ""]);
+  hdr = add(["2026 month", "Baseline $", "Engine forecast $ (full)", "Engine weighted $", "Team final forecast $", "", ""]);
   hdrs.push(hdr);
   Object.keys(bt.monthly).sort().forEach(function (m) {
     const x = bt.monthly[m];
-    const r = add([FY27_monthToDate_(m), x.baseline, x.engine, x.team]);
-    fmt.push([r, 1, "mmm-yy"], [r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"]);
+    const r = add([FY27_monthToDate_(m), x.baseline, x.engine, x.engineWeighted, x.team]);
+    fmt.push([r, 1, "mmm-yy"], [r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"], [r, 5, "$#,##0"]);
   });
   sum.getRange(1, 1, rows.length, 7).setValues(rows);
   fmt.forEach(function (f) { sum.getRange(f[0], f[1]).setNumberFormat(f[2]); });

@@ -530,4 +530,40 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(ok.lines[0].forecastAmount, 200000);
   assert.strictEqual(ok.lines[0].forecastSource, "Tableau");
 }
+// 34. At Risk + weighting: baseline-only lines with a contract covering the year are At Risk, weighted; cohort-backed lines are full;
+//     pending contracts and BOS keep their own status
+{
+  const F = "0014u000025ATRISK", G = "0014u000025COHORT", P = "0014u000025PENDNG";
+  const r = run(
+    [tab({ "FULL ID": F, "Billing ID": "001A1", "Baseline Amount - Tableau": "1000" }),
+     tab({ "FULL ID": G, "Billing ID": "001A2", "Baseline Amount - Tableau": "1000" }),
+     tab({ "FULL ID": P, "Billing ID": "001A3", "Baseline Amount - Tableau": "1000" }),
+     tab({ "FULL ID": "0014u000025BOSACCT", "Billing ID": "A123456", "Baseline Amount - Tableau": "1000" })],
+    [otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01" }),  // contract covers 2027, no 2027 cohort
+     otc({ "Full ID": G, "order_estimated_start_date": "2027-02-01" })]);
+  const byId = (id) => r.lines.find((l) => l.fullId === id);
+  assert.strictEqual(byId(F).expectation, "At Risk");
+  assert.strictEqual(byId(F).forecastAmount, 1000);
+  assert.strictEqual(byId(F).weight, 0.55);
+  assert.strictEqual(byId(F).weightedAmount, 550);
+  assert.strictEqual(byId(G).expectation, "Expected");
+  assert.strictEqual(byId(G).weightedAmount, 1000);
+  assert.strictEqual(byId(P).expectation, "Renewal Pending");
+  assert.strictEqual(byId(P).weightedAmount, 650);
+  assert.strictEqual(r.lines.find((l) => l.studentOrgId === "A123456").expectation, "Expected");
+  assert.strictEqual(r.stats.total, 4000);
+  assert.strictEqual(r.stats.totalWeighted, 550 + 1000 + 650 + 1000);
+  const jan = r.coverage.reduce((s, c) => s + c.weighted, 0);
+  assert.strictEqual(jan, r.stats.totalWeighted);
+}
+// 35. Not Expected (adjustment) weighs 0; an override that excludes a line zeroes its weighted amount too
+{
+  const F = "0014u000025WEIGHT0";
+  const first = run([tab({ "FULL ID": F, "Adjustment (true/false)": "TRUE", "Baseline Amount - Tableau": "250" })], []);
+  assert.strictEqual(first.lines[0].weightedAmount, 0);
+  const G = "0014u000025WEIGHT1";
+  const a = run([tab({ "FULL ID": G })], []);
+  const b = run([tab({ "FULL ID": G })], [], [], [{ "Line Key": a.lines[0].key, "Exclude": "TRUE" }]);
+  assert.strictEqual(b.lines[0].weightedAmount, 0);
+}
 console.log("all engine tests passed");
