@@ -21,6 +21,8 @@ const FY27_CFG = {
     REVIEW: "Forecast Review",
     BT_BEGINNING: "2026 Beginning Forecast Reference",
     BT_FINAL: "2026 Forecast Reference",
+    BT_ACTUALS_2024: "2024 Actuals",
+    BT_ALL: "Backtest All Lines",
     BT_SUMMARY: "Backtest Summary",
     BT_DETAIL: "Backtest Detail",
     OVERRIDES: "Forecast Overrides"

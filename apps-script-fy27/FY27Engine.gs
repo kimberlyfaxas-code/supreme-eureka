@@ -620,6 +620,7 @@ function FY27_buildForecast(input, cfg) {
     L.forecastMonth = b.fcMonth;
     L.baselineAmount = b.baseAmt;
     L.forecastAmount = b.baseAmt;
+    L.contractEnd = cEnd;
     L.bookingId = b.bookingId;
     L.priorCohorts = prior;
     L.bookingType = "Rebooking (assumed)";

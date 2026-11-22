@@ -85,6 +85,17 @@ function FY27_backtest_(input, cfg) {
       "Baseline Amount - Tableau": r["Baseline Amount"], "Adjustment (true/false)": "", __row: r.__row
     });
   });
+  // 2024 actuals (optional): what each account + product group booked, and in which months, the year before the baseline
+  const hist = {};
+  (input.actuals || []).forEach(function (r) {
+    const m = FY27_str_(r["Account Name with Student Org"]).match(/\(([A-Za-z0-9]{10,18})\)\s*$/);
+    const mk = FY27_monthKey_(r["Booking Month"]);
+    if (!m || !mk) return;
+    const k = FY27_id15_(m[1]) + "|" + FY27_str_(r["Product Group"]);
+    const h = hist[k] || (hist[k] = { total: 0, months: {} });
+    const v = FY27_num_(r["Metric value Sales"]);
+    h.total += v; h.months[mk.slice(5, 7)] = (h.months[mk.slice(5, 7)] || 0) + v;
+  });
   const res = FY27_buildForecast({
     tableau: tableau, otc: input.otc, salesforce: input.salesforce || [], overrides: [], now: new Date(year, 0, 1)
   }, bcfg);
@@ -94,7 +105,12 @@ function FY27_backtest_(input, cfg) {
   res.detail.forEach(function (d) {
     if (!d.baselineMonth) return;
     const k = [FY27_id15_(d.studentOrgId), d.productGroup, FY27_addMonths_(d.baselineMonth, 12)].join("|");
-    const e = eng[k] || (eng[k] = { account: d.accountName, baseline: 0, forecast: 0, flags: [], expectations: {}, rating: d.rating, cohort: false, bos: false });
+    const e = eng[k] || (eng[k] = { account: d.accountName, baseline: 0, forecast: 0, flags: [], expectations: {}, rating: d.rating, cohort: false, bos: false,
+      hasCode: false, cohortTotal: 0, contractEnd: "", lines: 0, products: {} });
+    e.lines++;
+    if (d.cohortCodes) e.hasCode = true;
+    if (d.cohortNames || d.cohortCodes) e.cohortTotal += d.forecastAmount;
+    if (d.contractEnd && d.contractEnd > e.contractEnd) e.contractEnd = d.contractEnd;
     e.baseline += d.baselineAmount; e.forecast += d.forecastAmount;
     if (d.cohortNames || d.cohortCodes) e.cohort = true;
     if (/^A\d+$/.test(FY27_str_(d.studentOrgId))) e.bos = true;
@@ -119,6 +135,8 @@ function FY27_backtest_(input, cfg) {
     t.cats[roll] = (t.cats[roll] || 0) + Math.max(Math.abs(fa), 0.01);
     if (!t.comment && FY27_str_(r["Latest Comment"])) t.comment = FY27_str_(r["Latest Comment"]);
     if (!t.outreach) t.outreach = FY27_str_(r["Outreach Status"]);
+    if (!t.csm) t.csm = FY27_str_(r["Current CSM"]);
+    if (!t.product) t.product = FY27_str_(r["Product"]);
     t.catRaw = t.catRaw || FY27_str_(r["Forecast Category"]);
   });
 
@@ -144,6 +162,7 @@ function FY27_backtest_(input, cfg) {
   }
   const reasons = {};          // reason -> {n, base, teamFull, teamZero}
   const detail = [];
+  const all = [];
   const monthly = {};
   Object.keys(keys).forEach(function (k) {
     const e = eng[k], t = fin[k];
@@ -169,6 +188,17 @@ function FY27_backtest_(input, cfg) {
       if (tb === "Zero") { rr.teamZero++; rr.teamZeroBase += base; }
     }
     const mo = k.split("|")[2];
+    const hh = hist[k.split("|")[0] + "|" + k.split("|")[1]];
+    all.push({
+      account: e.account || t.account, org: k.split("|")[0], group: k.split("|")[1], month: mo, baseline: base,
+      engine: e.forecast, team: t.forecast, engineBand: eb, teamBand: tb, teamCategory: t.catRaw || "", outreach: t.outreach,
+      rating: e.rating, csm: t.csm || "", teamProduct: t.product || "",
+      source: e.cohort ? (e.hasCode ? "OTC rebooking cohort" : "OTC roster cohort") : (e.bos ? "BOS baseline" : "Baseline only"),
+      cohortTotal: e.cohortTotal, ratio: e.baseline ? e.forecast / e.baseline : "", contractEnd: e.contractEnd,
+      monthsToEnd: e.contractEnd ? FY27_monthDiff_(e.contractEnd, mo) : "",
+      booked2024SameMonth: hh ? (hh.months[mo.slice(5, 7)] ? "Y" : "N") : "(no 2024 data)",
+      total2024: hh ? hh.total : "", flags: e.flags.join(" | ")
+    });
     const m = monthly[mo] || (monthly[mo] = { baseline: 0, engine: 0, team: 0 });
     m.baseline += base; m.engine += e.forecast; m.team += t.forecast;
     if (eb !== tb) {
@@ -190,7 +220,7 @@ function FY27_backtest_(input, cfg) {
     const c = yearCross[eb + "|" + tb] || (yearCross[eb + "|" + tb] = { n: 0, base: 0, engine: 0, team: 0 });
     c.n++; c.base += y.baseline; c.engine += y.engine; c.team += y.team;
   });
-  return { cross: cross, yearCross: yearCross, signals: signals, reasons: reasons, detail: detail, monthly: monthly, compared: Object.keys(keys).filter(function (k) { return eng[k] && fin[k]; }).length,
+  return { all: all, cross: cross, yearCross: yearCross, signals: signals, reasons: reasons, detail: detail, monthly: monthly, compared: Object.keys(keys).filter(function (k) { return eng[k] && fin[k]; }).length,
            engineOnly: Object.keys(eng).filter(function (k) { return !fin[k]; }).length, teamOnly: Object.keys(fin).filter(function (k) { return !eng[k]; }).length,
            engineStats: res.stats };
 }

@@ -500,8 +500,14 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
     final: [fin("2/1/2026", 9000, 9000, "Captured - On Time"), fin("3/1/2026", 300, 0, "Not expected (Active Client)"),
             fin("5/1/2026", 10000, 10000, "Captured - Early"), fin("8/1/2026", 11000, 11000, "Expected"),
             fin("6/1/2026", 5000, 0, "Not expected (Active Client)")],
-    salesforce: [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFFULL01" }], otc: []
+    salesforce: [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFFULL01" }], otc: [],
+    actuals: [{ "Account Name with Student Org": "Acct (" + ORG + ")", "Product Group": "NURSING COURSE", "Booking Month": "Feb-24", "Metric value Sales": "8000" }]
   }, CFG);
+  assert.strictEqual(r.all.length, 5);
+  const feb = r.all.find((a) => a.month === "2026-02");
+  assert.strictEqual(feb.booked2024SameMonth, "Y");
+  assert.strictEqual(r.all.find((a) => a.month === "2026-05").booked2024SameMonth, "N");
+  assert.strictEqual(feb.source, "Baseline only");
   assert.strictEqual(r.compared, 5);
   assert.strictEqual(r.cross["Zero|Zero"].n, 1);              // the $300 adjustment
   assert.strictEqual(r.cross["Full|Full"].n, 3);
