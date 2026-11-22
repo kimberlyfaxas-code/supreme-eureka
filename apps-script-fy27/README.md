@@ -52,7 +52,9 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   (`AT_RISK_BASELINE_ONLY`). `Weighted Forecast Amount` = Forecast Amount x `WEIGHTS[Forecast Category]` (Captured/Expected 100%,
   Pending Contract 65%, At Risk 55%, Not Expected 0%). Totals and dashboards should use the weighted amount, not the full value, so At Risk
   is not counted at 100%. Starting weights come from the 2026 backtest; recalibrate after each backtest.
-- Segment weights (`AT_RISK_WEIGHT_RULES`) for baseline-only lines, from the 2026 backtest: Med course 25%, contract ended 30%, Red 55%,
+- Med and Allied Health are flat fees (`FLAT_FEE_GROUPS`): a baseline-only flat-fee line follows the contract (ended 10%, covers 40%, no contract data 50%),
+  and lines under `FLAT_FEE_OVERAGE_MAX` ($5,000) are treated as add-ons for students over the allocation (15%). Additional-cohort logic is not applied to them.
+- Segment weights (`AT_RISK_WEIGHT_RULES`) for baseline-only lines, from the 2026 backtest: (older note) Med course 25%, contract ended 30%, Red 55%,
   iHuman 85%, contract covers year 80%, no OTC contract data 90% (calibrated on the as-of backtest).
 - `AMOUNT_BASIS` ("baseline" default): for a Tableau baseline row with matched OTC cohorts, the Tableau total is kept and split across the
   cohorts by their OTC share (OTC supplies timing). "min" caps OTC amounts at Tableau; "otc" uses OTC amounts + trend. "otc" = OTC amounts + trend, "baseline" = Tableau total split across cohorts. In the backtest OTC/trend amounts

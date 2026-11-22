@@ -105,6 +105,9 @@ const FY27_CFG = {
   // evidence: in the 2026 backtest the team zeroed about half of them. They are marked At Risk, and totals use a
   // WEIGHTED amount (Forecast Amount x weight by Forecast Category) so At Risk is not counted at full value.
   // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
+  // Flat-fee product groups, and the size under which a line is treated as an add-on (overage) rather than the flat fee itself.
+  FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
+  FLAT_FEE_OVERAGE_MAX: 5000,
   AT_RISK_BASELINE_ONLY: true,
   AT_RISK_CATEGORY: "At Risk",
   // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the AS-OF 2026 backtest (what we would
@@ -113,7 +116,14 @@ const FY27_CFG = {
   // lower keep rates; that one was too pessimistic and under-forecast by 15%.)
   // Fields: group (product group), rating, ended (contract ended before the month), noContract (no OTC contract data), weight.
   AT_RISK_WEIGHT_RULES: [
-    { name: "Med course, no cohort",            group: "MED COURSE", weight: 0.25 },
+    // Med and Allied Health are flat fees per contract term plus small add-on bookings when a school exceeds its allocated students. The flat fee
+    // repeats only if the contract is alive; add-ons are variable and rarely repeat. Backtest (baseline-only Med/Allied lines): add-ons under
+    // $1k kept 8%, $1-5k kept 23%; flat fees with the contract ended kept 4% (that backtest saw later renewals, so 10% is used), with the contract
+    // covering the term kept 38%.
+    { name: "Med/Allied add-on (under flat-fee size)", flatFee: true, overage: true,    weight: 0.15 },
+    { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.10 },
+    { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.40 },
+    { name: "Med/Allied flat fee, no contract data",   flatFee: true, noContract: true, weight: 0.50 },
     { name: "Contract ended before month",      ended: true,         weight: 0.30 },
     { name: "Red rating, no cohort",            rating: "red",       weight: 0.55 },
     { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.85 },

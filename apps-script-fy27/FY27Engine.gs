@@ -560,7 +560,8 @@ function FY27_buildForecast(input, cfg) {
     let matches = assigned.get(b) || [];
     // predicted additional cohorts: more upcoming cohorts than last year's booked cohorts -> the extras add value on top of the baseline
     let extras = [], extraNote = "", extraAvg = 0;
-    if (cfg.EXTRA_COHORTS && matches.length && b.baseAmt > 0 && !b.isAdj && !restrictedAccount(b.fullId)) {
+    const isFlatFee = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
+    if (cfg.EXTRA_COHORTS && !isFlatFee && matches.length && b.baseAmt > 0 && !b.isAdj && !restrictedAccount(b.fullId)) {
       const lastN = lastCount.get(b) || 0;
       const countable = matches.filter(function (o) { return o.total > 0; });     // $0 placeholder rosters are not real cohorts
       if (lastN > 0 && countable.length > lastN) {
@@ -744,13 +745,16 @@ function FY27_buildForecast(input, cfg) {
     if (!b.isBOS && !b.isAdj && (L.expectation === cfg.AT_RISK_CATEGORY || L.expectation === cfg.PENDING_CATEGORY)) {
       const ended = !!(otcByAcct[b.fullId] && cEnd && FY27_monthDiff_(b.fcMonth, cEnd) > 0);
       const noContract = !otcByAcct[b.fullId] || !cEnd;
-      const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract };
+      const flatFee = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
+      const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract,
+        flatFee: flatFee, overage: flatFee && b.baseAmt < cfg.FLAT_FEE_OVERAGE_MAX };
       const rules = cfg.AT_RISK_WEIGHT_RULES || [];
       for (let ri = 0; ri < rules.length; ri++) {
         const ru = rules[ri];
         if ((ru.group === undefined || ru.group.toUpperCase() === facts.group) && (ru.rating === undefined || ru.rating === facts.rating) &&
             (ru.ended === undefined || ru.ended === facts.ended) && (ru.noContract === undefined || ru.noContract === facts.noContract) &&
-            (ru.covers === undefined || ru.covers === facts.covers)) {
+            (ru.covers === undefined || ru.covers === facts.covers) && (ru.flatFee === undefined || ru.flatFee === facts.flatFee) &&
+            (ru.overage === undefined || ru.overage === facts.overage)) {
           L.weightOverride = ru.weight; L.segment = ru.name;
           break;
         }

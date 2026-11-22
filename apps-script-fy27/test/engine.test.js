@@ -606,8 +606,9 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const done = (end, group) => otc({ "Full ID": "0014u000025SEGMENTS", "Product Group": group || "NURSING COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01",
     "order_estimated_start_date": "2026-02-01", "Contract End Date": end });
   const med = mk({ "Product Group": "MED COURSE" }, [done("2028-01-01", "MED COURSE")]);
-  assert.strictEqual(med.lines[0].weight, 0.25);
-  assert.strictEqual(med.lines[0].weightedAmount, 250);
+  assert.strictEqual(med.lines[0].segment, "Med/Allied add-on (under flat-fee size)");   // $1,000 < $5,000
+  assert.strictEqual(med.lines[0].weight, 0.15);
+  assert.strictEqual(med.lines[0].weightedAmount, 150);
   const ended = mk({}, [done("2026-12-01")]);
   assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
   assert.strictEqual(ended.lines[0].expectation, "Pending Contract");
@@ -798,7 +799,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const F = "0014u000025SEGCOMP";
   const r = run([tab({ "FULL ID": F, "Product Group": "MED COURSE" })], [otc({ "Full ID": F, "Product Group": "MED COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })]);
   const seg = r.stats.composition.bySegment;
-  assert.ok(seg["Med course, no cohort"], JSON.stringify(Object.keys(seg)));
+  assert.ok(seg["Med/Allied add-on (under flat-fee size)"], JSON.stringify(Object.keys(seg)));
   assert.strictEqual(Object.keys(seg).reduce((s2, k) => s2 + seg[k].full, 0), r.stats.total);
 }
 // 49. As-of backtest ignores orders created after the backtest year began (a renewal signed in 2026 is not visible on 1 Jan 2026)
@@ -815,5 +816,24 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const asOf = BT2.FY27_backtest_({ beginning: beg, final: fin, salesforce: sf, otc: [old, renewal], actuals: [] }, Object.assign({}, CFG, { BT_AS_OF_DROP_CREATED_AFTER: true }));
   assert.ok(!/ended/i.test(withLeak.all[0].segment));      // leak: the later renewal makes the contract look live
   assert.strictEqual(asOf.all[0].segment, "Contract ended before month");   // as of 1 Jan 2026 the contract had ended
+}
+// 50. Med / Allied Health are flat fees: the flat fee follows the contract; small add-ons are weighted low; no extra-cohort logic
+{
+  const F = "0014u000025FLATFEE";
+  const mk = (group, amt, end) => run([tab({ "FULL ID": F, "Product Group": group, "Baseline Amount - Tableau": String(amt) })],
+    [otc({ "Full ID": F, "Product Group": group, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": end })]);
+  const flatCovers = mk("MED COURSE", 120000, "2028-01-01").lines[0];
+  assert.strictEqual(flatCovers.segment, "Med/Allied flat fee, contract covers"); assert.strictEqual(flatCovers.weightedAmount, 48000);
+  const flatEnded = mk("ALLIED HEALTH COURSE", 120000, "2026-12-01").lines[0];
+  assert.strictEqual(flatEnded.segment, "Med/Allied flat fee, contract ended"); assert.strictEqual(flatEnded.weightedAmount, 12000);
+  const addon = mk("MED COURSE", 900, "2028-01-01").lines[0];
+  assert.strictEqual(addon.segment, "Med/Allied add-on (under flat-fee size)");
+  // no extra cohorts for flat-fee groups even if OTC lists more cohort rows than last year
+  const prev = otc({ "Full ID": F, "Product Group": "MED COURSE", "cohort_name": "S1", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": "1000" });
+  const nxt = ["S1", "S2"].map((n) => otc({ "Full ID": F, "Product Group": "MED COURSE", "cohort_name": n, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1000" }));
+  CFG.AMOUNT_BASIS = "baseline";
+  const ex = run([tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "1000" })], [prev].concat(nxt));
+  CFG.AMOUNT_BASIS = "otc";
+  assert.strictEqual(ex.lines.filter((l) => l.forecastSource === "OTC").length, 0);
 }
 console.log("all engine tests passed");
