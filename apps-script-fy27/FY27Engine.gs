@@ -257,11 +257,16 @@ function FY27_buildHistory_(otc, cfg) {
   const firstByAccountGroup = {};
   const firstByCohort = {};
   const lastByFamily = {};
+  const cohortLast = {};
   otc.forEach(function (o) {
     if (o.dne || !o.booked || !o.actStart) return;
     const k = o.fullId + "|" + o.group + "|" + o.family;
     const h = byKey[k] || (byKey[k] = { n: 0, est: 0, fin: 0 });
     if (o.estStudents > 0 && o.finalStudents >= 0) { h.n++; h.est += o.estStudents; h.fin += o.finalStudents; }
+    if (o.cohortName && o.finalStudents > 0) {
+      const ck2 = o.fullId + "|" + o.cohortName;
+      if (!cohortLast[ck2] || o.actStart > cohortLast[ck2].month) cohortLast[ck2] = { final: o.finalStudents, price: o.price, total: o.total, month: o.actStart };
+    }
     const lk = o.fullId + "|" + o.group + "|" + o.family;
     if (!lastByFamily[lk] || o.actStart > lastByFamily[lk]) lastByFamily[lk] = o.actStart;
     const ag = o.fullId + "|" + o.group;
@@ -279,7 +284,7 @@ function FY27_buildHistory_(otc, cfg) {
       ratio[k] = { ratio: Math.min(hi, Math.max(lo, h.fin / h.est)), n: h.n };
     }
   });
-  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort, lastByFamily: lastByFamily };
+  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort, lastByFamily: lastByFamily, cohortLast: cohortLast };
 }
 
 /* ---------------- main engine ---------------- */
@@ -455,7 +460,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "",
+      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
@@ -506,10 +511,12 @@ function FY27_buildForecast(input, cfg) {
     if (b && b.isAdj && b.baseAmt > 0) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Adjustment";
       line.flags.push("Positive adjustment: tagged not expected for this client");
     } else if (b && b.isAdj && b.baseAmt < 0) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Adjustment";
       line.flags.push("Negative adjustment" + (b.fromAdjTab ? " (Adjustments tab)" : "") + ": in baseline, not forecast" +
         (cfg.ADJUSTMENT_MAX_ABS > 0 && Math.abs(b.baseAmt) > cfg.ADJUSTMENT_MAX_ABS
           ? " - LARGE (over $" + cfg.ADJUSTMENT_MAX_ABS.toLocaleString() + "): probably part of a booking total, review" : ""));
@@ -519,10 +526,12 @@ function FY27_buildForecast(input, cfg) {
       // a baseline repeated "by assumption" is not evidence of one
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Lost";
       line.flags.push("Black rating (teach-out): only existing OTC cohorts are forecast, baseline not repeated");
     } else if ((kind === "gray" || kind === "black") && line.bookingType === "Roster Chasing" && line.status !== "Booked") {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "No Revenue This Term";
       line.flags.push((kind === "black" ? "Black" : "Gray") + " rating: no new cohorts expected, only rebookings");
     }
   }
@@ -579,6 +588,8 @@ function FY27_buildForecast(input, cfg) {
         L.priorCohorts = i === baseIdx ? prior : "";
         L.bookingType = bookingType;
         L.status = o.booked ? "Booked" : "Forecast";
+        L.stage = o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started");
+        if (b.fcMonth && o.month) { const dm = FY27_monthDiff_(o.month, b.fcMonth); L.timing = dm < 0 ? "Early" : dm > 0 ? "Late" : "On time"; }
         // amount: actual if booked, else (trend-adjusted) students x price, else OTC total
         let amt = o.total;
         L.otcEstimate = o.total;
@@ -648,6 +659,7 @@ function FY27_buildForecast(input, cfg) {
     L.priorCohorts = prior;
     L.bookingType = "Rebooking (assumed)";
     L.status = "Forecast";
+    L.stage = "Not started";
     L.expectation = "Expected";
     const cr0 = creditFor(b.fullId, b.group, b.fcMonth, b);
     L.credit = cr0.credit; L.creditBasis = cr0.basis;
@@ -728,16 +740,24 @@ function FY27_buildForecast(input, cfg) {
       productCode: o.productCode, productType: o.productType, modality: o.modality, otcProgram: o.otcProgram, termMonths: o.termMonths,
       bookingType: o.isRebooking ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
+      stage: o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started"),
       forecastAmount: o.total, otcEstimate: o.total,
       expectation: o.booked ? "Captured" : "Expected"
     });
-    if (!o.booked && (cfg.AMOUNT_BASIS || "otc") === "otc") {
+    if (!o.booked && (cfg.ENROLLMENT_BASIS || "actual") === "actual" && o.price > 0) {
+      // no baseline for this cohort: size it from what the same cohort ACTUALLY enrolled last time (OTC estimates are the rep's
+      // expectation at signing); if the cohort is new, fall back to the account's actual-vs-estimate history
+      const last = history.cohortLast[o.fullId + "|" + o.cohortName];
       const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
-      if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
+      if (last && last.month < o.month && last.final > 0) {
+        L.adjStudents = last.final;
+        L.forecastAmount = FY27_round2_(last.final * o.price);
+        L.flags.push("Cohort size from last actual enrollment: " + last.final + " students (" + last.month + ") instead of OTC estimate " + o.estStudents);
+      } else if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0) {
         const adj = Math.round(o.estStudents * tr.ratio);
         L.adjStudents = adj;
         L.forecastAmount = FY27_round2_(adj * o.price);
-        L.flags.push("Cohort size trend-adjusted " + o.estStudents + " -> " + adj);
+        L.flags.push("Cohort size from account's actual-vs-estimate history: " + o.estStudents + " -> " + adj + " (x" + FY27_round2_(tr.ratio) + " over " + tr.n + " cohorts)");
       }
     }
     if (notInTableau) {
@@ -755,6 +775,7 @@ function FY27_buildForecast(input, cfg) {
     if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
       const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
       L.expectation = "Not Expected";
+      L.reason = "No Revenue This Term";
       L.forecastAmount = 0;
       L.flags.push("No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "") +
         " - cohort in OTC not forecast. Override if the program is returning");
@@ -801,14 +822,30 @@ function FY27_buildForecast(input, cfg) {
     const exclude = FY27_bool_(ov["Exclude"]);
     const amt = FY27_str_(ov["Override Amount"]);
     const mo = FY27_monthKey_(ov["Override Month"]);
-    if (!exclude && amt === "" && !mo) return;
+    const catRaw = FY27_str_(ov["Forecast Category"]).toLowerCase();
+    const cat = (cfg.CATEGORIES || []).filter(function (c) { return c.toLowerCase() === catRaw; })[0] || "";
+    const reasonRaw = FY27_str_(ov["Not Expected Reason"]);
+    const stageRaw = FY27_str_(ov["Roster Stage"]);
+    if (!exclude && amt === "" && !mo && !cat && !reasonRaw && !stageRaw) return;
     overridesApplied++;
+    if (cat) {
+      L.expectation = cat;
+      const w = cfg.WEIGHTS && cfg.WEIGHTS[cat];
+      L.weight = w === undefined ? 1 : w;
+      L.flags.push("Manual override: category " + cat);
+    }
+    if (reasonRaw) L.reason = reasonRaw;
+    if (stageRaw) L.stage = stageRaw;
     if (exclude) { L.forecastAmount = 0; L.expectation = "Not Expected"; L.flags.push("Manual override: excluded"); }
     if (amt !== "") { L.forecastAmount = FY27_num_(amt); L.flags.push("Manual override: amount"); }
     if (mo) { L.forecastMonth = mo; L.flags.push("Manual override: month"); }
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
+  lines.forEach(function (L) {
+    if (L.expectation === "Not Expected") L.stage = L.stage && L.stage !== "Not started" && L.stage !== "Not needed" ? L.stage : "";
+    else L.reason = "";
+  });
   // a grouped row keeps the blended weight of its parts; overrides (exclude / amount) rescale it
   lines.forEach(function (L) { L.weightedAmount = FY27_round2_(L.forecastAmount * (L.expectation === "Not Expected" ? 0 : L.weight)); });
 
@@ -1018,6 +1055,7 @@ function FY27_mergeLines_(parts, makeLine) {
   L.priorBookingType = join("priorBookingType");
   L.nextBookingType = join("nextBookingType");
   L.baselineAmount = sum("baselineAmount");
+  L.reason = join("reason"); L.stage = join("stage"); L.timing = join("timing");
   L.otcEstimate = parts.some(function (p) { return p.otcEstimate !== ""; }) ? sum("otcEstimate") : "";
   L.segment = FY27_uniqJoin_(parts.map(function (p) { return p.segment; }));
   const wsum = parts.reduce(function (t, p) { return t + (Number(p.weightedAmount) || 0); }, 0);

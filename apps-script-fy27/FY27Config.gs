@@ -77,8 +77,8 @@ const FY27_CFG = {
   LIKELY_ADJ_MIN_OTHERS: 2,
 
   // Forecast Category for lines whose contract is pending (expired / not yet renewed / not in OTC).
-  // Counts as Expected in the roll-up (same idea as "Renewal Pending" in the 2026 forecast); not flagged for review.
-  PENDING_CATEGORY: "Renewal Pending",
+  // Counts toward the forecast (weighted); not flagged for review. (In the 2026 sheet "Renewal Pending" was an Outreach Status.)
+  PENDING_CATEGORY: "Pending Contract",
 
   // The hidden "Adjustments" tab is not a complete list of individual 2026 adjustments, so it is not read
   // by default. Set true to add its rows as baseline-only lines (never forecast).
@@ -122,7 +122,19 @@ const FY27_CFG = {
   // As-of 2026 backtest, line-level error vs what the team ended with ($ across 551 kept lines): baseline 2.27M, min 2.35M,
   // OTC estimate 3.04M. Tableau baseline total was within 0.4% of the team's total. Booked OTC actuals are never scaled.
   AMOUNT_BASIS: "baseline",
-  WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+
+  // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
+  // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).
+  CATEGORIES: ["Captured", "Expected", "At Risk", "Pending Contract", "Not Expected"],
+  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error"],
+  ROSTER_STAGES: ["Not started", "In progress", "Received - held", "Submitted", "Not needed"],
+
+  // Cohort size for OTC cohorts that have no Tableau baseline line (the amount cannot come from a baseline):
+  //  "actual"   = the same cohort's most recent ACTUAL (final) enrollment, else the account's actual-vs-estimate history x OTC estimate.
+  //               OTC estimates are what the rep expected at signing; actual enrollment changes through the term (adds / drops).
+  //  "estimate" = OTC estimated students as they are.
+  ENROLLMENT_BASIS: "actual",
 
   // Backtest: pretend it is the start of the backtest year. OTC orders that were actually booked during that year are
   // treated as estimates (students x price, no final enrollment) and cohort codes first assigned during that year are
@@ -141,9 +153,10 @@ const FY27_CFG = {
   OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "invoicing", "ar review", "controller", "booking", "booked"],
 
   // What makes an OTC cohort a "rebooking" (vs roster chasing = first time it will be booked):
-  //  "code"   = a Cohort Code is present (the OTC header says: if present, this is a rebooking)
-  //  "period" = Cohort Code present OR Cohort Code Billing Period >= 2 (period 1 = the first time the cohort books, per Forecast Goals)
-  // In the Nov-2026 export, 337 of the 2,407 Roster rows starting in 2027 have billing period 2+ but no cohort code.
+  //  "code"   = a Cohort Code is present. The code only exists once the cohort has booked, so a period-2+ row with no code belongs to a
+  //             cohort whose first period has not booked yet. Tested on the Nov-2026 export: 332 of the 337 such 2027 rows sit in a cohort
+  //             (same account + cohort_name) whose period 1 exists and has not booked. This is the right definition.
+  //  "period" = also treat Cohort Code Billing Period >= 2 as a rebooking (not recommended).
   REBOOKING_BASIS: "code",
 
   // Billing IDs that start with "A" + digits are BOS (new billing system) and never appear in OTC

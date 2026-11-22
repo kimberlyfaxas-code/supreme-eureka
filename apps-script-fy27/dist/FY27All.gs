@@ -82,8 +82,8 @@ const FY27_CFG = {
   LIKELY_ADJ_MIN_OTHERS: 2,
 
   // Forecast Category for lines whose contract is pending (expired / not yet renewed / not in OTC).
-  // Counts as Expected in the roll-up (same idea as "Renewal Pending" in the 2026 forecast); not flagged for review.
-  PENDING_CATEGORY: "Renewal Pending",
+  // Counts toward the forecast (weighted); not flagged for review. (In the 2026 sheet "Renewal Pending" was an Outreach Status.)
+  PENDING_CATEGORY: "Pending Contract",
 
   // The hidden "Adjustments" tab is not a complete list of individual 2026 adjustments, so it is not read
   // by default. Set true to add its rows as baseline-only lines (never forecast).
@@ -127,7 +127,19 @@ const FY27_CFG = {
   // As-of 2026 backtest, line-level error vs what the team ended with ($ across 551 kept lines): baseline 2.27M, min 2.35M,
   // OTC estimate 3.04M. Tableau baseline total was within 0.4% of the team's total. Booked OTC actuals are never scaled.
   AMOUNT_BASIS: "baseline",
-  WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+
+  // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
+  // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).
+  CATEGORIES: ["Captured", "Expected", "At Risk", "Pending Contract", "Not Expected"],
+  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error"],
+  ROSTER_STAGES: ["Not started", "In progress", "Received - held", "Submitted", "Not needed"],
+
+  // Cohort size for OTC cohorts that have no Tableau baseline line (the amount cannot come from a baseline):
+  //  "actual"   = the same cohort's most recent ACTUAL (final) enrollment, else the account's actual-vs-estimate history x OTC estimate.
+  //               OTC estimates are what the rep expected at signing; actual enrollment changes through the term (adds / drops).
+  //  "estimate" = OTC estimated students as they are.
+  ENROLLMENT_BASIS: "actual",
 
   // Backtest: pretend it is the start of the backtest year. OTC orders that were actually booked during that year are
   // treated as estimates (students x price, no final enrollment) and cohort codes first assigned during that year are
@@ -146,9 +158,10 @@ const FY27_CFG = {
   OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "invoicing", "ar review", "controller", "booking", "booked"],
 
   // What makes an OTC cohort a "rebooking" (vs roster chasing = first time it will be booked):
-  //  "code"   = a Cohort Code is present (the OTC header says: if present, this is a rebooking)
-  //  "period" = Cohort Code present OR Cohort Code Billing Period >= 2 (period 1 = the first time the cohort books, per Forecast Goals)
-  // In the Nov-2026 export, 337 of the 2,407 Roster rows starting in 2027 have billing period 2+ but no cohort code.
+  //  "code"   = a Cohort Code is present. The code only exists once the cohort has booked, so a period-2+ row with no code belongs to a
+  //             cohort whose first period has not booked yet. Tested on the Nov-2026 export: 332 of the 337 such 2027 rows sit in a cohort
+  //             (same account + cohort_name) whose period 1 exists and has not booked. This is the right definition.
+  //  "period" = also treat Cohort Code Billing Period >= 2 as a rebooking (not recommended).
   REBOOKING_BASIS: "code",
 
   // Billing IDs that start with "A" + digits are BOS (new billing system) and never appear in OTC
@@ -415,11 +428,16 @@ function FY27_buildHistory_(otc, cfg) {
   const firstByAccountGroup = {};
   const firstByCohort = {};
   const lastByFamily = {};
+  const cohortLast = {};
   otc.forEach(function (o) {
     if (o.dne || !o.booked || !o.actStart) return;
     const k = o.fullId + "|" + o.group + "|" + o.family;
     const h = byKey[k] || (byKey[k] = { n: 0, est: 0, fin: 0 });
     if (o.estStudents > 0 && o.finalStudents >= 0) { h.n++; h.est += o.estStudents; h.fin += o.finalStudents; }
+    if (o.cohortName && o.finalStudents > 0) {
+      const ck2 = o.fullId + "|" + o.cohortName;
+      if (!cohortLast[ck2] || o.actStart > cohortLast[ck2].month) cohortLast[ck2] = { final: o.finalStudents, price: o.price, total: o.total, month: o.actStart };
+    }
     const lk = o.fullId + "|" + o.group + "|" + o.family;
     if (!lastByFamily[lk] || o.actStart > lastByFamily[lk]) lastByFamily[lk] = o.actStart;
     const ag = o.fullId + "|" + o.group;
@@ -437,7 +455,7 @@ function FY27_buildHistory_(otc, cfg) {
       ratio[k] = { ratio: Math.min(hi, Math.max(lo, h.fin / h.est)), n: h.n };
     }
   });
-  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort, lastByFamily: lastByFamily };
+  return { ratio: ratio, firstByAccountGroup: firstByAccountGroup, firstByCohort: firstByCohort, lastByFamily: lastByFamily, cohortLast: cohortLast };
 }
 
 /* ---------------- main engine ---------------- */
@@ -613,7 +631,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "",
+      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
@@ -664,10 +682,12 @@ function FY27_buildForecast(input, cfg) {
     if (b && b.isAdj && b.baseAmt > 0) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Adjustment";
       line.flags.push("Positive adjustment: tagged not expected for this client");
     } else if (b && b.isAdj && b.baseAmt < 0) {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Adjustment";
       line.flags.push("Negative adjustment" + (b.fromAdjTab ? " (Adjustments tab)" : "") + ": in baseline, not forecast" +
         (cfg.ADJUSTMENT_MAX_ABS > 0 && Math.abs(b.baseAmt) > cfg.ADJUSTMENT_MAX_ABS
           ? " - LARGE (over $" + cfg.ADJUSTMENT_MAX_ABS.toLocaleString() + "): probably part of a booking total, review" : ""));
@@ -677,10 +697,12 @@ function FY27_buildForecast(input, cfg) {
       // a baseline repeated "by assumption" is not evidence of one
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "Lost";
       line.flags.push("Black rating (teach-out): only existing OTC cohorts are forecast, baseline not repeated");
     } else if ((kind === "gray" || kind === "black") && line.bookingType === "Roster Chasing" && line.status !== "Booked") {
       line.expectation = "Not Expected";
       line.forecastAmount = 0;
+      line.reason = "No Revenue This Term";
       line.flags.push((kind === "black" ? "Black" : "Gray") + " rating: no new cohorts expected, only rebookings");
     }
   }
@@ -737,6 +759,8 @@ function FY27_buildForecast(input, cfg) {
         L.priorCohorts = i === baseIdx ? prior : "";
         L.bookingType = bookingType;
         L.status = o.booked ? "Booked" : "Forecast";
+        L.stage = o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started");
+        if (b.fcMonth && o.month) { const dm = FY27_monthDiff_(o.month, b.fcMonth); L.timing = dm < 0 ? "Early" : dm > 0 ? "Late" : "On time"; }
         // amount: actual if booked, else (trend-adjusted) students x price, else OTC total
         let amt = o.total;
         L.otcEstimate = o.total;
@@ -806,6 +830,7 @@ function FY27_buildForecast(input, cfg) {
     L.priorCohorts = prior;
     L.bookingType = "Rebooking (assumed)";
     L.status = "Forecast";
+    L.stage = "Not started";
     L.expectation = "Expected";
     const cr0 = creditFor(b.fullId, b.group, b.fcMonth, b);
     L.credit = cr0.credit; L.creditBasis = cr0.basis;
@@ -886,16 +911,24 @@ function FY27_buildForecast(input, cfg) {
       productCode: o.productCode, productType: o.productType, modality: o.modality, otcProgram: o.otcProgram, termMonths: o.termMonths,
       bookingType: o.isRebooking ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
+      stage: o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started"),
       forecastAmount: o.total, otcEstimate: o.total,
       expectation: o.booked ? "Captured" : "Expected"
     });
-    if (!o.booked && (cfg.AMOUNT_BASIS || "otc") === "otc") {
+    if (!o.booked && (cfg.ENROLLMENT_BASIS || "actual") === "actual" && o.price > 0) {
+      // no baseline for this cohort: size it from what the same cohort ACTUALLY enrolled last time (OTC estimates are the rep's
+      // expectation at signing); if the cohort is new, fall back to the account's actual-vs-estimate history
+      const last = history.cohortLast[o.fullId + "|" + o.cohortName];
       const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
-      if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
+      if (last && last.month < o.month && last.final > 0) {
+        L.adjStudents = last.final;
+        L.forecastAmount = FY27_round2_(last.final * o.price);
+        L.flags.push("Cohort size from last actual enrollment: " + last.final + " students (" + last.month + ") instead of OTC estimate " + o.estStudents);
+      } else if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0) {
         const adj = Math.round(o.estStudents * tr.ratio);
         L.adjStudents = adj;
         L.forecastAmount = FY27_round2_(adj * o.price);
-        L.flags.push("Cohort size trend-adjusted " + o.estStudents + " -> " + adj);
+        L.flags.push("Cohort size from account's actual-vs-estimate history: " + o.estStudents + " -> " + adj + " (x" + FY27_round2_(tr.ratio) + " over " + tr.n + " cohorts)");
       }
     }
     if (notInTableau) {
@@ -913,6 +946,7 @@ function FY27_buildForecast(input, cfg) {
     if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
       const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
       L.expectation = "Not Expected";
+      L.reason = "No Revenue This Term";
       L.forecastAmount = 0;
       L.flags.push("No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "") +
         " - cohort in OTC not forecast. Override if the program is returning");
@@ -959,14 +993,30 @@ function FY27_buildForecast(input, cfg) {
     const exclude = FY27_bool_(ov["Exclude"]);
     const amt = FY27_str_(ov["Override Amount"]);
     const mo = FY27_monthKey_(ov["Override Month"]);
-    if (!exclude && amt === "" && !mo) return;
+    const catRaw = FY27_str_(ov["Forecast Category"]).toLowerCase();
+    const cat = (cfg.CATEGORIES || []).filter(function (c) { return c.toLowerCase() === catRaw; })[0] || "";
+    const reasonRaw = FY27_str_(ov["Not Expected Reason"]);
+    const stageRaw = FY27_str_(ov["Roster Stage"]);
+    if (!exclude && amt === "" && !mo && !cat && !reasonRaw && !stageRaw) return;
     overridesApplied++;
+    if (cat) {
+      L.expectation = cat;
+      const w = cfg.WEIGHTS && cfg.WEIGHTS[cat];
+      L.weight = w === undefined ? 1 : w;
+      L.flags.push("Manual override: category " + cat);
+    }
+    if (reasonRaw) L.reason = reasonRaw;
+    if (stageRaw) L.stage = stageRaw;
     if (exclude) { L.forecastAmount = 0; L.expectation = "Not Expected"; L.flags.push("Manual override: excluded"); }
     if (amt !== "") { L.forecastAmount = FY27_num_(amt); L.flags.push("Manual override: amount"); }
     if (mo) { L.forecastMonth = mo; L.flags.push("Manual override: month"); }
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
+  lines.forEach(function (L) {
+    if (L.expectation === "Not Expected") L.stage = L.stage && L.stage !== "Not started" && L.stage !== "Not needed" ? L.stage : "";
+    else L.reason = "";
+  });
   // a grouped row keeps the blended weight of its parts; overrides (exclude / amount) rescale it
   lines.forEach(function (L) { L.weightedAmount = FY27_round2_(L.forecastAmount * (L.expectation === "Not Expected" ? 0 : L.weight)); });
 
@@ -1176,6 +1226,7 @@ function FY27_mergeLines_(parts, makeLine) {
   L.priorBookingType = join("priorBookingType");
   L.nextBookingType = join("nextBookingType");
   L.baselineAmount = sum("baselineAmount");
+  L.reason = join("reason"); L.stage = join("stage"); L.timing = join("timing");
   L.otcEstimate = parts.some(function (p) { return p.otcEstimate !== ""; }) ? sum("otcEstimate") : "";
   L.segment = FY27_uniqJoin_(parts.map(function (p) { return p.segment; }));
   const wsum = parts.reduce(function (t, p) { return t + (Number(p.weightedAmount) || 0); }, 0);
@@ -1305,6 +1356,9 @@ const FY27_FORECAST_COLUMNS = [
   ["Credit Basis", "creditBasis"],
   ["Status", "status"],
   ["Forecast Category", "expectation"],
+  ["Not Expected Reason", "reason"],
+  ["Roster Stage", "stage"],
+  ["Timing vs Baseline", "timing"],
   ["Flags", "flags", "flags"],
   ["Line Key", "key"]
 ];
@@ -1504,14 +1558,29 @@ function FY27_writeBackTableau_(sh, tableau, writeback) {
 function FY27_ensureOverridesSheet_() {
   const ss = SpreadsheetApp.getActive();
   const name = FY27_CFG.SHEETS.OVERRIDES;
+  const header = ["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month",
+    "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"];
   let sh = ss.getSheetByName(name);
-  if (!sh) {
-    sh = ss.insertSheet(name);
-    sh.getRange(1, 1, 1, 8).setValues([["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month", "Exclude", "Comment"]]);
-    sh.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#E7EDF6");
-    sh.setFrozenRows(1);
-    sh.getRange(2, 7, 500, 1).insertCheckboxes();
+  if (!sh) sh = ss.insertSheet(name);
+  const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
+  if (!header.every(function (h, i) { return cur[i] === h; })) {
+    // older layout had an "Exclude" checkbox in column G and Comment in H: carry rows over (Exclude -> Not Expected)
+    let carried = [];
+    if (sh.getLastRow() > 1 && cur[6] === "Exclude") {
+      carried = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function (r) { return r[0] !== ""; }).map(function (r) {
+        return [r[0], r[1], r[2], r[3], r[4], r[5], (r[6] === true || String(r[6]).toLowerCase() === "true") ? "Not Expected" : "", "", "", r[7]];
+      });
+    }
+    sh.clear();
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+    if (carried.length) sh.getRange(2, 1, carried.length, header.length).setValues(carried);
   }
+  sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#E7EDF6");
+  sh.setFrozenRows(1);
+  const dd = function (col, list) {
+    sh.getRange(2, col, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(list, true).setAllowInvalid(false).build());
+  };
+  dd(7, FY27_CFG.CATEGORIES); dd(8, FY27_CFG.NOT_EXPECTED_REASONS); dd(9, FY27_CFG.ROSTER_STAGES);
   return sh;
 }
 
@@ -1532,7 +1601,6 @@ function FY27_addOverrideForSelection() {
   const last = Math.max(ov.getLastRow(), 1) + 1;
   ov.getRange(last, 1, 1, 4).setValues([[get("Line Key"), get("Account Name"), get("Product Group") + " / " + get("Product Name"), get("Forecast Month")]]);
   ov.getRange(last, 4).setNumberFormat("mmm-yy");
-  ov.getRange(last, 7).insertCheckboxes();
   ss.setActiveSheet(ov);
   ov.setActiveRange(ov.getRange(last, 5));
 }
@@ -1845,7 +1913,7 @@ function FY27_backtest_(input, cfg) {
     s.push("Rating: " + (e.rating || "(blank)"));
     s.push(e.cohort ? "OTC cohort matched" : "Baseline only (no OTC cohort)");
     if (e.bos) s.push("BOS billing (not in OTC)");
-    if (e.expectations["Renewal Pending"]) s.push("Contract pending (Renewal Pending)");
+    if (e.expectations["Pending Contract"] || e.expectations["Renewal Pending"]) s.push("Contract pending");
     if (f.indexOf("no upcoming cohort") >= 0) s.push("Contract covers year, no upcoming cohort");
     if (f.indexOf("far from baseline") >= 0) s.push("OTC estimate far from baseline");
     if (f.indexOf("adjustment: baseline") >= 0) s.push("Baseline above/below OTC estimate");

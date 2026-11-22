@@ -180,7 +180,7 @@ function FY27_backtest_(input, cfg) {
     s.push("Rating: " + (e.rating || "(blank)"));
     s.push(e.cohort ? "OTC cohort matched" : "Baseline only (no OTC cohort)");
     if (e.bos) s.push("BOS billing (not in OTC)");
-    if (e.expectations["Renewal Pending"]) s.push("Contract pending (Renewal Pending)");
+    if (e.expectations["Pending Contract"] || e.expectations["Renewal Pending"]) s.push("Contract pending");
     if (f.indexOf("no upcoming cohort") >= 0) s.push("Contract covers year, no upcoming cohort");
     if (f.indexOf("far from baseline") >= 0) s.push("OTC estimate far from baseline");
     if (f.indexOf("adjustment: baseline") >= 0) s.push("Baseline above/below OTC estimate");

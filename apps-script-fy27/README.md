@@ -41,7 +41,7 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - Adjustments, summarised: any negative amount is an adjustment. A positive line is an adjustment when OTC actuals reconcile it
   ("Adjustment (derived)") or when it is far smaller than the product's other bookings and falls outside its normal booking months
   ("Adjustment (likely)", `LIKELY_ADJ_FRACTION`). All are forecast $0 with baseline kept, and flagged.
-- Pending contracts (contract ended, no OTC contract / data) are not review flags: the Forecast Category is `Renewal Pending`
+- Pending contracts (contract ended, no OTC contract / data) are not review flags: the Forecast Category is `Pending Contract`
   (`PENDING_CATEGORY`) and the amount still counts, like the 2026 forecast.
 - Negative adjustments (any negative amount in the Tableau tab, plus the `Adjustments` tab if enabled) are baseline rows that are never
   forecast. The Review tab's Baseline check compares the forecast's Baseline Amount with Tableau + Adjustments tab; the difference
@@ -50,7 +50,7 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   baseline is kept and flagged (annual fees, $0 OTC estimates).
 - At Risk and weighting: a baseline line with no OTC cohort behind it (baseline repeated by assumption) is `At Risk`
   (`AT_RISK_BASELINE_ONLY`). `Weighted Forecast Amount` = Forecast Amount x `WEIGHTS[Forecast Category]` (Captured/Expected 100%,
-  Renewal Pending 65%, At Risk 55%, Not Expected 0%). Totals and dashboards should use the weighted amount, not the full value, so At Risk
+  Pending Contract 65%, At Risk 55%, Not Expected 0%). Totals and dashboards should use the weighted amount, not the full value, so At Risk
   is not counted at 100%. Starting weights come from the 2026 backtest; recalibrate after each backtest.
 - Segment weights (`AT_RISK_WEIGHT_RULES`) for baseline-only lines, from the 2026 backtest: Med course 25%, contract ended 30%, Red 55%,
   iHuman 85%, contract covers year 80%, no OTC contract data 90% (calibrated on the as-of backtest).
@@ -79,6 +79,18 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 `Tableau` = the line is tied to a Tableau baseline row (the amount may come from OTC cohort data); `OTC` = OTC cohort with
 no Tableau baseline line; `Manual Add On` = reserved for the manual add-on feature (not built yet). A grouped row that mixes
 sources shows both, e.g. `Tableau; OTC`.
+
+## Simplified vocabulary (for CSMs)
+Three short dropdowns replace the 2026 Outreach Status x Forecast Category grid:
+- **Forecast Category** (5): Captured, Expected, At Risk, Pending Contract, Not Expected.
+- **Not Expected Reason** (5, only for Not Expected): Lost, No Revenue This Term, Non-Recurring, Adjustment, Data Error.
+- **Roster Stage** (5): Not started, In progress, Received - held, Submitted, Not needed.
+Early / On time / Late is calculated (`Timing vs Baseline`), not picked. The engine pre-fills all of it; CSMs only change what is wrong,
+on the **Forecast Overrides** tab (dropdowns). The weighted forecast follows the category.
+
+## Cohort sizing for cohorts with no baseline (`ENROLLMENT_BASIS` = "actual")
+OTC estimates are what the rep expected at signing; actual enrollment moves through the term. A cohort with no Tableau baseline line is sized
+from the same cohort's (same account + cohort_name) most recent actual enrollment x the upcoming price, else the account's actual-vs-estimate history.
 
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /

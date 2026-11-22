@@ -18,21 +18,23 @@ function makeSheet(name) {
       return this;
     },
     setNumberFormat() { return this; }, setFontWeight() { return this; }, setFontSize() { return this; },
-    setBackground() { return this; }, insertCheckboxes() { return this; }
+    setBackground() { return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; },
+    getValues() { return Array.from({ length: nr || 1 }, () => Array(nc || 1).fill("")); }
   });
   sh.clear = () => sh; sh.clearFormats = () => sh; sh.setFrozenRows = () => sh; sh.autoResizeColumns = () => sh; sh.setColumnWidth = () => sh;
   sh.getLastRow = () => 1; sh.getLastColumn = () => 1;
   return sh;
 }
 const sheets = {};
-const SpreadsheetApp = { getActive: () => ss };
+const builder = () => new Proxy({}, { get: (_, k) => (k === "build" ? () => ({}) : () => builder()) });
+const SpreadsheetApp = { getActive: () => ss, newDataValidation: () => builder() };
 const ss = {
   getSheetByName: (n) => sheets[n] || null,
   insertSheet: (n) => (sheets[n] = makeSheet(n)),
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_ };")(SpreadsheetApp, {});
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_ };")(SpreadsheetApp, {});
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -42,6 +44,7 @@ const tab = (o) => Object.assign({ "Billing ID": "001X", "Account Name": "A", "F
 const res = api.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025WRITERS" }), tab({ "FULL ID": "0014u000025WRITERS", "Baseline Amount - Tableau": "-50" })],
   otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 18) }, CFG);
 
+api.FY27_ensureOverridesSheet_();
 api.FY27_writeForecast_(ss, res.lines, CFG.SHEETS.FORECAST);
 api.FY27_writeForecast_(ss, res.detail, CFG.SHEETS.DETAIL);
 api.FY27_writeReview_(ss, res);
@@ -56,6 +59,7 @@ const bt = api.FY27_backtest_({
 }, CFG);
 api.FY27_writeBacktest_(ss, bt);
 
+assert.ok(sheets[CFG.SHEETS.OVERRIDES].writes.length >= 1, "overrides header written");
 assert.ok(sheets[CFG.SHEETS.FORECAST].writes.length >= 1);
 assert.ok(sheets[CFG.SHEETS.REVIEW].writes.length >= 1);
 assert.ok(sheets[CFG.SHEETS.BT_SUMMARY].writes.length >= 1);

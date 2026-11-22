@@ -118,7 +118,7 @@ const run = (t, o, sf, ov, adj) => E.FY27_buildForecast({ tableau: t, otc: o, sa
   const r = run(
     [tab({ "FULL ID": "0014W00003S8JGS", "Forecast Month - Tableau": "9/1/2027", "Baseline Booking Month - Tableau": "9/1/2026" })],
     [otc({ "Full ID": "0014W00003S8JGS", "Contract End Date": "2027-04-01", "order_estimated_start_date": "2026-08-01", "order_status": "Complete", "order_actual_start_date": "2026-08-01" })]);
-  assert.strictEqual(r.lines[0].expectation, "Renewal Pending");   // expired contract: status, not a review flag
+  assert.strictEqual(r.lines[0].expectation, "Pending Contract");   // expired contract: status, not a review flag
   assert.ok(!r.lines[0].flags.some((f) => /renewal|contract/i.test(f)), JSON.stringify(r.lines[0].flags));
   assert.strictEqual(r.lines[0].forecastAmount, 1000);              // still counted
 }
@@ -475,10 +475,10 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const r = run([row("2/1/2026", 9000, "2/1/2027"), row("3/1/2026", 300, "3/1/2027")], []);
   assert.strictEqual(r.stats.likelyAdjustments, 0);
 }
-// 31. Pending contract: no OTC contract at all for a non-BOS account -> Renewal Pending, no flags
+// 31. Pending contract: no OTC contract at all for a non-BOS account -> Pending Contract, no flags
 {
   const r = run([tab({ "FULL ID": "0014u000025PENDING" })], [otc({ "Full ID": "0014u000025OTHERACCT" })]);
-  assert.strictEqual(r.lines[0].expectation, "Renewal Pending");
+  assert.strictEqual(r.lines[0].expectation, "Pending Contract");
   assert.strictEqual(r.lines[0].flags.length, 0);
   assert.strictEqual(r.lines[0].forecastAmount, 1000);
   assert.strictEqual(r.review.length, 0);
@@ -490,7 +490,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const BT = new Function(engSrc + "\n" + btSrc + "\nreturn { FY27_backtest_, FY27_rollup_ };")();
   assert.strictEqual(BT.FY27_rollup_("Captured - On Time"), "Captured");
   assert.strictEqual(BT.FY27_rollup_("Not expected (Active Client - ...)"), "Not Expected");
-  assert.strictEqual(BT.FY27_rollup_("Renewal Pending"), "Expected");
+  assert.strictEqual(BT.FY27_rollup_("Pending Contract"), "Expected");
   const ORG = "001ORGAAAAAAAAA1";
   const beg = (m, amt) => ({ "Student Org ID": ORG, "Forecast Source": "System Forecast", "Forecast Line Type": "Forecast", "Health Rating": "Green",
     "Account Name": "Acct", "Product Group": "NURSING COURSE", "Baseline Month": m, "Baseline Amount": "$" + amt, "Starting Forecast Amount": "$" + amt });
@@ -567,7 +567,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(byId(F).weightedAmount, 800);
   assert.strictEqual(byId(G).expectation, "Expected");
   assert.strictEqual(byId(G).weightedAmount, 1000);
-  assert.strictEqual(byId(P).expectation, "Renewal Pending");
+  assert.strictEqual(byId(P).expectation, "Pending Contract");
   assert.strictEqual(byId(P).segment, "No OTC contract data");
   assert.strictEqual(byId(P).weightedAmount, 900);
   assert.strictEqual(r.lines.find((l) => l.studentOrgId === "A123456").expectation, "Expected");
@@ -605,7 +605,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(med.lines[0].weightedAmount, 250);
   const ended = mk({}, [done("2026-12-01")]);
   assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
-  assert.strictEqual(ended.lines[0].expectation, "Renewal Pending");
+  assert.strictEqual(ended.lines[0].expectation, "Pending Contract");
   assert.strictEqual(ended.lines[0].weightedAmount, 300);
   const red = mk({ "Rating": "Red" }, [done("2028-01-01")]);
   assert.strictEqual(red.lines[0].weight, 0.55);
@@ -656,5 +656,63 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const l = r.lines[0];
   assert.strictEqual(l.productCode, "OLNCLSYR"); assert.strictEqual(l.otcProgram, "NCLEX RN");
   assert.strictEqual(l.productType, "Curriculum Plus"); assert.strictEqual(l.modality, "SELF-PACED"); assert.strictEqual(l.termMonths, "6");
+}
+// 42. Simplified vocabulary: reason / stage / timing are filled in by the engine
+{
+  const F = "0014u000025VOCAB1";
+  // matched cohorts: Early / Late / On time vs the baseline month, stage from rebooking vs roster chasing
+  const r = run([tab({ "FULL ID": F, "Baseline Amount - Tableau": "3000", "Forecast Month - Tableau": "2/1/2027" })], [
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-01-01", "Estimated or Actual Order Total": "1000", "cohort_name": "A", "Cohort Code (if present, then this is a rebooking)": "C1" }),
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1000", "cohort_name": "B" }),
+    otc({ "Full ID": F, "order_estimated_start_date": "2027-03-01", "Estimated or Actual Order Total": "1000", "cohort_name": "C", "Cohort Code (if present, then this is a rebooking)": "C3" })]);
+  const at = (m) => r.lines.find((l) => l.forecastMonth === m);
+  assert.strictEqual(at("2027-01").timing, "Early"); assert.strictEqual(at("2027-02").timing, "On time"); assert.strictEqual(at("2027-03").timing, "Late");
+  assert.strictEqual(at("2027-01").stage, "Not needed");      // rebooking: roster already in house
+  assert.strictEqual(at("2027-02").stage, "Not started");     // roster chasing
+  // reasons: adjustment / black (teach-out) / dormant program
+  const adj = run([tab({ "FULL ID": "0014u000025VOCAB2", "Adjustment (true/false)": "TRUE", "Baseline Amount - Tableau": "250" })], []);
+  assert.strictEqual(adj.lines[0].expectation, "Not Expected"); assert.strictEqual(adj.lines[0].reason, "Adjustment"); assert.strictEqual(adj.lines[0].stage, "");
+  const blk = run([tab({ "FULL ID": "0014u000025VOCAB3", "Rating": "Black" })], []);
+  assert.strictEqual(blk.lines[0].reason, "Lost");
+  const dorm = run([tab({ "FULL ID": "0014u000025VOCAB4" })], [otc({ "Full ID": "0014u000025VOCAB4", "Product Name": "NCLEX PN Enrichment", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01" })]);
+  assert.strictEqual(dorm.lines.find((l) => l.productName === "NCLEX PN Enrichment").reason, "No Revenue This Term");
+  // reason is blank unless the line is Not Expected
+  assert.ok(r.lines.every((l) => l.reason === ""));
+}
+// 43. A CSM picks the Forecast Category (and reason / stage) on the Overrides tab
+{
+  const F = "0014u000025CSMPICK";
+  const t = [tab({ "FULL ID": F })];
+  const base = run(t, []);
+  const key = base.lines[0].key;
+  const risk = run(t, [], [], [{ "Line Key": key, "Forecast Category": "At Risk" }]);
+  assert.strictEqual(risk.lines[0].expectation, "At Risk"); assert.strictEqual(risk.lines[0].weightedAmount, 550); assert.strictEqual(risk.stats.overridesApplied, 1);
+  const lost = run(t, [], [], [{ "Line Key": key, "Forecast Category": "not expected", "Not Expected Reason": "Lost", "Roster Stage": "Not needed" }]);
+  assert.strictEqual(lost.lines[0].expectation, "Not Expected"); assert.strictEqual(lost.lines[0].reason, "Lost"); assert.strictEqual(lost.lines[0].weightedAmount, 0);
+  const bad = run(t, [], [], [{ "Line Key": key, "Forecast Category": "Maybe" }]);       // not a valid category: ignored
+  assert.strictEqual(bad.stats.overridesApplied, 0);
+  const captured = run(t, [], [], [{ "Line Key": key, "Forecast Category": "Captured" }]);
+  assert.strictEqual(captured.lines[0].weightedAmount, 1000);
+}
+// 44. Cohort with no baseline line: size it from the same cohort's last ACTUAL enrollment, not the rep's estimate
+{
+  const F = "0014u000025ACTUALS";
+  const prior = otc({ "Full ID": F, "cohort_name": "Cohort A", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01",
+    "Estimated # of Students": "40", "order_enrollment_final": "30", "Price Per Student": "100", "Estimated or Actual Order Total": "3000" });
+  const next = otc({ "Full ID": F, "cohort_name": "Cohort A", "Cohort Code (if present, then this is a rebooking)": "CA1", "order_estimated_start_date": "2027-08-01",
+    "Estimated # of Students": "40", "Price Per Student": "100", "Estimated or Actual Order Total": "4000" });
+  const t = [tab({ "FULL ID": F })];                       // baseline sits in Feb-27, six months from the cohort: unmatched, source OTC
+  const r = run(t, [prior, next]);
+  const l = r.lines.find((x) => x.forecastMonth === "2027-08");
+  assert.strictEqual(l.forecastSource, "OTC");
+  assert.strictEqual(l.forecastAmount, 3000);               // 30 actual students x $100, not 40 x $100
+  assert.strictEqual(l.adjStudents, 30);
+  assert.ok(l.flags.some((f) => /last actual enrollment: 30 students/.test(f)));
+  CFG.ENROLLMENT_BASIS = "estimate";
+  assert.strictEqual(run(t, [prior, next]).lines.find((x) => x.forecastMonth === "2027-08").forecastAmount, 4000);
+  CFG.ENROLLMENT_BASIS = "actual";
+  // a brand-new cohort (no prior booking) keeps the OTC estimate unless the account has an actual-vs-estimate pattern
+  const fresh = run(t, [next]);
+  assert.strictEqual(fresh.lines.find((x) => x.forecastMonth === "2027-08").forecastAmount, 4000);
 }
 console.log("all engine tests passed");

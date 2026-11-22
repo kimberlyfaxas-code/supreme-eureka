@@ -74,6 +74,9 @@ const FY27_FORECAST_COLUMNS = [
   ["Credit Basis", "creditBasis"],
   ["Status", "status"],
   ["Forecast Category", "expectation"],
+  ["Not Expected Reason", "reason"],
+  ["Roster Stage", "stage"],
+  ["Timing vs Baseline", "timing"],
   ["Flags", "flags", "flags"],
   ["Line Key", "key"]
 ];
@@ -273,14 +276,29 @@ function FY27_writeBackTableau_(sh, tableau, writeback) {
 function FY27_ensureOverridesSheet_() {
   const ss = SpreadsheetApp.getActive();
   const name = FY27_CFG.SHEETS.OVERRIDES;
+  const header = ["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month",
+    "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"];
   let sh = ss.getSheetByName(name);
-  if (!sh) {
-    sh = ss.insertSheet(name);
-    sh.getRange(1, 1, 1, 8).setValues([["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month", "Exclude", "Comment"]]);
-    sh.getRange(1, 1, 1, 8).setFontWeight("bold").setBackground("#E7EDF6");
-    sh.setFrozenRows(1);
-    sh.getRange(2, 7, 500, 1).insertCheckboxes();
+  if (!sh) sh = ss.insertSheet(name);
+  const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
+  if (!header.every(function (h, i) { return cur[i] === h; })) {
+    // older layout had an "Exclude" checkbox in column G and Comment in H: carry rows over (Exclude -> Not Expected)
+    let carried = [];
+    if (sh.getLastRow() > 1 && cur[6] === "Exclude") {
+      carried = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function (r) { return r[0] !== ""; }).map(function (r) {
+        return [r[0], r[1], r[2], r[3], r[4], r[5], (r[6] === true || String(r[6]).toLowerCase() === "true") ? "Not Expected" : "", "", "", r[7]];
+      });
+    }
+    sh.clear();
+    sh.getRange(1, 1, 1, header.length).setValues([header]);
+    if (carried.length) sh.getRange(2, 1, carried.length, header.length).setValues(carried);
   }
+  sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#E7EDF6");
+  sh.setFrozenRows(1);
+  const dd = function (col, list) {
+    sh.getRange(2, col, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(list, true).setAllowInvalid(false).build());
+  };
+  dd(7, FY27_CFG.CATEGORIES); dd(8, FY27_CFG.NOT_EXPECTED_REASONS); dd(9, FY27_CFG.ROSTER_STAGES);
   return sh;
 }
 
@@ -301,7 +319,6 @@ function FY27_addOverrideForSelection() {
   const last = Math.max(ov.getLastRow(), 1) + 1;
   ov.getRange(last, 1, 1, 4).setValues([[get("Line Key"), get("Account Name"), get("Product Group") + " / " + get("Product Name"), get("Forecast Month")]]);
   ov.getRange(last, 4).setNumberFormat("mmm-yy");
-  ov.getRange(last, 7).insertCheckboxes();
   ss.setActiveSheet(ov);
   ov.setActiveRange(ov.getRange(last, 5));
 }
