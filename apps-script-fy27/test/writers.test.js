@@ -18,10 +18,10 @@ function makeSheet(name) {
       return this;
     },
     setNumberFormat() { return this; }, setFontWeight() { return this; }, setFontSize() { return this; },
-    setBackground() { return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; },
+    setBackground() { return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; }, clearFormat() { return this; },
     getValues() { return Array.from({ length: nr || 1 }, () => Array(nc || 1).fill("")); }
   });
-  sh.clear = () => sh; sh.clearFormats = () => sh; sh.setFrozenRows = () => sh; sh.autoResizeColumns = () => sh; sh.setColumnWidth = () => sh;
+  sh.getMaxRows = () => 1000; sh.getMaxColumns = () => 26; sh.clear = () => sh; sh.clearFormats = () => sh; sh.setFrozenRows = () => sh; sh.autoResizeColumns = () => sh; sh.setColumnWidth = () => sh;
   sh.getLastRow = () => 1; sh.getLastColumn = () => 1;
   return sh;
 }

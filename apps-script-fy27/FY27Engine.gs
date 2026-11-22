@@ -431,7 +431,7 @@ function FY27_buildForecast(input, cfg) {
   // how many cohorts (booked OTC orders) made up each baseline row last year? (same nearest-row assignment as the upcoming cohorts)
   const lastCount = new Map();
   otcAll.forEach(function (o) {
-    if (o.dne || !o.booked || !o.actStart || FY27_yearOf_(o.actStart) !== year - 1) return;
+    if (o.dne || !o.booked || !o.actStart || o.total <= 0 || FY27_yearOf_(o.actStart) !== year - 1) return;
     const cands = (baseByAcctGroup[o.fullId + "|" + o.group] || []).filter(function (b) {
       return !b.isBOS && !b.isAdj && b.baseMonth && FY27_familiesCompatible_(b.family, o.family);
     });
@@ -562,11 +562,12 @@ function FY27_buildForecast(input, cfg) {
     let extras = [], extraNote = "", extraAvg = 0;
     if (cfg.EXTRA_COHORTS && matches.length && b.baseAmt > 0 && !b.isAdj && !restrictedAccount(b.fullId)) {
       const lastN = lastCount.get(b) || 0;
-      if (lastN > 0 && matches.length > lastN) {
-        const nExtra = matches.length - lastN;
+      const countable = matches.filter(function (o) { return o.total > 0; });     // $0 placeholder rosters are not real cohorts
+      if (lastN > 0 && countable.length > lastN) {
+        const nExtra = countable.length - lastN;
         extraAvg = FY27_round2_(b.baseAmt / lastN);
         // extras: not-yet-booked first, first-time (roster chasing) cohorts first, latest month first
-        const ranked = matches.slice().sort(function (x, y) {
+        const ranked = countable.slice().sort(function (x, y) {
           return (x.booked - y.booked) || (x.isRebooking - y.isRebooking) || (y.month < x.month ? -1 : y.month > x.month ? 1 : 0);
         });
         extras = ranked.slice(0, nExtra);
@@ -679,8 +680,9 @@ function FY27_buildForecast(input, cfg) {
         X.bookingType = o.isRebooking ? "Rebooking" : "Roster Chasing";
         X.status = o.booked ? "Booked" : "Forecast";
         X.stage = o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started");
-        X.forecastAmount = o.booked ? o.total : extraAvg;
+        X.forecastAmount = o.booked ? o.total : Math.min(extraAvg, o.total);
         X.expectation = o.booked ? "Captured" : cfg.EXTRA_COHORT_CATEGORY;
+        if (!o.booked) { X.weightOverride = cfg.EXTRA_COHORT_WEIGHT; X.segment = "Additional predicted cohort"; }
         X.flags.push(extraNote);
         applyRatingAndAdj(X, null, !o.booked);
         lines.push(X);
@@ -956,9 +958,9 @@ function FY27_buildForecast(input, cfg) {
       lines: lines.length,
       detailLines: detail.length,
       composition: (function () {
-        const out = { byCategory: {}, bySource: {} };
+        const out = { byCategory: {}, bySource: {}, bySegment: {} };
         lines.forEach(function (L) {
-          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"]].forEach(function (p) {
+          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"], ["bySegment", L.segment || "(cohort-backed or Tableau line)"]].forEach(function (p) {
             const x = out[p[0]][p[1]] || (out[p[0]][p[1]] = { n: 0, full: 0, weighted: 0 });
             x.n++; x.full += L.forecastAmount; x.weighted += L.weightedAmount;
           });

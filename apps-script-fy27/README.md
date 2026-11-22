@@ -97,8 +97,10 @@ from the same cohort's (same account + cohort_name) most recent actual enrollmen
 ## Predicted additional cohorts (`EXTRA_COHORTS`)
 For each Tableau baseline row the engine counts the cohorts (booked OTC orders) that made it up last year and the OTC cohorts now expected in the same
 window. If there are more now (e.g. 4 last year, 5 predicted), the extra cohort(s) add value on top of the baseline: each is valued at last year's average
-cohort value (baseline / last year's count), source `OTC`, category `EXTRA_COHORT_CATEGORY` (At Risk, so weighted 55% until it books). The first-time (roster chasing)
+cohort value (baseline / last year's count, never above the extra cohort's own OTC estimate), source `OTC`, category `EXTRA_COHORT_CATEGORY` (At Risk) weighted `EXTRA_COHORT_WEIGHT` (25%, from the backtest: predicted extras realized about a quarter of their value) until it books. $0 placeholder rosters are not counted as cohorts. The first-time (roster chasing)
 cohorts are chosen as the extras. The baseline itself is not diluted: the other cohorts still add up to the Tableau baseline. Not applied to gray/black accounts.
+
+The Review tab shows a **Weight basis** table (rows, full value, weighted $ by segment) and the Forecast tab a **Weight Basis** column, so you can see why a line is weighted the way it is.
 
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /

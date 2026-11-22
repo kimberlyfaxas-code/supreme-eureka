@@ -142,6 +142,10 @@ const FY27_CFG = {
   // line until it books). Not applied to gray/black accounts.
   EXTRA_COHORTS: true,
   EXTRA_COHORT_CATEGORY: "At Risk",
+  // Weight for an additional predicted cohort. As-of 2026 backtest: 257 baseline lines had extra cohorts predicted worth $2.83M (51% of their
+  // baseline); the team's final ended 26% of that above where comparable no-extra lines landed (team/baseline 1.05 vs 0.92). So ~25%, not the
+  // generic At Risk 55%. Cohorts with a $0 estimate (placeholder rosters) are not counted, and an extra is never valued above its own OTC estimate.
+  EXTRA_COHORT_WEIGHT: 0.25,
 
   // Cohort size for OTC cohorts that have no Tableau baseline line (the amount cannot come from a baseline):
   //  "actual"   = the same cohort's most recent ACTUAL (final) enrollment, else the account's actual-vs-estimate history x OTC estimate.

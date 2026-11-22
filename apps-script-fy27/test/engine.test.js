@@ -739,12 +739,19 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(ex.length, 1, "one additional cohort line");
   assert.strictEqual(ex[0].forecastAmount, 1000);                       // last year's average cohort value
   assert.strictEqual(ex[0].expectation, "At Risk");
-  assert.strictEqual(ex[0].weightedAmount, 550);
+  assert.strictEqual(ex[0].weightedAmount, 250);                        // EXTRA_COHORT_WEIGHT 25%
+  assert.strictEqual(ex[0].segment, "Additional predicted cohort");
   assert.strictEqual(ex[0].cohortNames, "Class 5 (new)");               // the first-time (roster chasing) cohort is the extra one
   assert.ok(ex[0].flags.some((f) => /OTC expects 5 cohorts vs 4 last year/.test(f)));
   const mainTotal = r.lines.filter((l) => l.forecastSource === "Tableau").reduce((s, l) => s + l.forecastAmount, 0);
   assert.strictEqual(Math.round(mainTotal), 4000);                       // the baseline is not diluted by the extra cohort
   assert.strictEqual(Math.round(r.stats.total), 5000);
+  // $0 placeholder rosters are not cohorts: 4 real + 1 placeholder is still 4 vs 4 last year -> no extra
+  const placeholder = next.slice(0, 4).concat([otc({ "Full ID": F, "cohort_name": "Placeholder", "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "0" })]);
+  assert.strictEqual(run(t(), prev.concat(placeholder)).lines.filter((l) => l.forecastSource === "OTC").length, 0);
+  // an extra is never valued above its own OTC estimate
+  const small = next.slice(0, 4).concat([otc({ "Full ID": F, "cohort_name": "Small new", "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "400" })]);
+  assert.strictEqual(run(t(), prev.concat(small)).lines.filter((l) => l.forecastSource === "OTC")[0].forecastAmount, 400);
   // no history of last year's cohorts -> nothing to compare with, no extras
   const noHist = run(t(), next);
   assert.strictEqual(noHist.lines.filter((l) => l.forecastSource === "OTC").length, 0);
@@ -785,5 +792,13 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
     [otc({ "Full ID": F, "Product Name": "Curriculum Plus", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01" })]);
   assert.strictEqual(r.lines.filter((l) => l.forecastSource === "OTC").length, 0, "matched to the PN baseline row by program, not left as OTC-only");
   assert.strictEqual(r.lines[0].forecastSource, "Tableau");
+}
+// 48. Weight basis composition adds up and names the segments
+{
+  const F = "0014u000025SEGCOMP";
+  const r = run([tab({ "FULL ID": F, "Product Group": "MED COURSE" })], [otc({ "Full ID": F, "Product Group": "MED COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })]);
+  const seg = r.stats.composition.bySegment;
+  assert.ok(seg["Med course, no cohort"], JSON.stringify(Object.keys(seg)));
+  assert.strictEqual(Object.keys(seg).reduce((s2, k) => s2 + seg[k].full, 0), r.stats.total);
 }
 console.log("all engine tests passed");

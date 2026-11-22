@@ -147,6 +147,10 @@ const FY27_CFG = {
   // line until it books). Not applied to gray/black accounts.
   EXTRA_COHORTS: true,
   EXTRA_COHORT_CATEGORY: "At Risk",
+  // Weight for an additional predicted cohort. As-of 2026 backtest: 257 baseline lines had extra cohorts predicted worth $2.83M (51% of their
+  // baseline); the team's final ended 26% of that above where comparable no-extra lines landed (team/baseline 1.05 vs 0.92). So ~25%, not the
+  // generic At Risk 55%. Cohorts with a $0 estimate (placeholder rosters) are not counted, and an extra is never valued above its own OTC estimate.
+  EXTRA_COHORT_WEIGHT: 0.25,
 
   // Cohort size for OTC cohorts that have no Tableau baseline line (the amount cannot come from a baseline):
   //  "actual"   = the same cohort's most recent ACTUAL (final) enrollment, else the account's actual-vs-estimate history x OTC estimate.
@@ -615,7 +619,7 @@ function FY27_buildForecast(input, cfg) {
   // how many cohorts (booked OTC orders) made up each baseline row last year? (same nearest-row assignment as the upcoming cohorts)
   const lastCount = new Map();
   otcAll.forEach(function (o) {
-    if (o.dne || !o.booked || !o.actStart || FY27_yearOf_(o.actStart) !== year - 1) return;
+    if (o.dne || !o.booked || !o.actStart || o.total <= 0 || FY27_yearOf_(o.actStart) !== year - 1) return;
     const cands = (baseByAcctGroup[o.fullId + "|" + o.group] || []).filter(function (b) {
       return !b.isBOS && !b.isAdj && b.baseMonth && FY27_familiesCompatible_(b.family, o.family);
     });
@@ -746,11 +750,12 @@ function FY27_buildForecast(input, cfg) {
     let extras = [], extraNote = "", extraAvg = 0;
     if (cfg.EXTRA_COHORTS && matches.length && b.baseAmt > 0 && !b.isAdj && !restrictedAccount(b.fullId)) {
       const lastN = lastCount.get(b) || 0;
-      if (lastN > 0 && matches.length > lastN) {
-        const nExtra = matches.length - lastN;
+      const countable = matches.filter(function (o) { return o.total > 0; });     // $0 placeholder rosters are not real cohorts
+      if (lastN > 0 && countable.length > lastN) {
+        const nExtra = countable.length - lastN;
         extraAvg = FY27_round2_(b.baseAmt / lastN);
         // extras: not-yet-booked first, first-time (roster chasing) cohorts first, latest month first
-        const ranked = matches.slice().sort(function (x, y) {
+        const ranked = countable.slice().sort(function (x, y) {
           return (x.booked - y.booked) || (x.isRebooking - y.isRebooking) || (y.month < x.month ? -1 : y.month > x.month ? 1 : 0);
         });
         extras = ranked.slice(0, nExtra);
@@ -863,8 +868,9 @@ function FY27_buildForecast(input, cfg) {
         X.bookingType = o.isRebooking ? "Rebooking" : "Roster Chasing";
         X.status = o.booked ? "Booked" : "Forecast";
         X.stage = o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started");
-        X.forecastAmount = o.booked ? o.total : extraAvg;
+        X.forecastAmount = o.booked ? o.total : Math.min(extraAvg, o.total);
         X.expectation = o.booked ? "Captured" : cfg.EXTRA_COHORT_CATEGORY;
+        if (!o.booked) { X.weightOverride = cfg.EXTRA_COHORT_WEIGHT; X.segment = "Additional predicted cohort"; }
         X.flags.push(extraNote);
         applyRatingAndAdj(X, null, !o.booked);
         lines.push(X);
@@ -1140,9 +1146,9 @@ function FY27_buildForecast(input, cfg) {
       lines: lines.length,
       detailLines: detail.length,
       composition: (function () {
-        const out = { byCategory: {}, bySource: {} };
+        const out = { byCategory: {}, bySource: {}, bySegment: {} };
         lines.forEach(function (L) {
-          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"]].forEach(function (p) {
+          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"], ["bySegment", L.segment || "(cohort-backed or Tableau line)"]].forEach(function (p) {
             const x = out[p[0]][p[1]] || (out[p[0]][p[1]] = { n: 0, full: 0, weighted: 0 });
             x.n++; x.full += L.forecastAmount; x.weighted += L.weightedAmount;
           });
@@ -1417,6 +1423,7 @@ const FY27_FORECAST_COLUMNS = [
   ["Value If Booked", "valueIfBooked", "money"],
   ["Forecast Amount", "forecastAmount", "money"],
   ["Forecast Weight", "weight", "pct"],
+  ["Weight Basis", "segment"],
   ["Weighted Forecast Amount", "weightedAmount", "money"],
   ["Est. Students (OTC)", "estStudents"],
   ["Trend-Adjusted Students", "adjStudents"],
@@ -1497,6 +1504,11 @@ function FY27_mustFind_(ss, exact, prefix, label) {
 
 /* ---------------- writers ---------------- */
 
+/** Belt and braces: wipe formats on the whole grid (stale date / currency formats from older layouts were surviving a rebuild). */
+function FY27_resetFormats_(sh) {
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearFormat();
+}
+
 function FY27_monthToDate_(key) {
   if (!key) return "";
   const p = String(key).split("-");
@@ -1505,7 +1517,7 @@ function FY27_monthToDate_(key) {
 
 function FY27_writeForecast_(ss, lines, name) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
-  sh.clear(); sh.clearFormats();
+  sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
   const cols = FY27_FORECAST_COLUMNS.filter(function (c) {
     return FY27_CFG.TAG_CREDIT || (c[1] !== "credit" && c[1] !== "creditBasis");
   });
@@ -1536,7 +1548,7 @@ function FY27_writeForecast_(ss, lines, name) {
 function FY27_writeReview_(ss, result) {
   const name = FY27_CFG.SHEETS.REVIEW;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
-  sh.clear(); sh.clearFormats();
+  sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
   const s = result.stats;
   const width = 7;
   const rows = [];
@@ -1565,7 +1577,7 @@ function FY27_writeReview_(ss, result) {
   add([]);
   // what the forecast is made of
   const compHdrs = [];
-  [["Forecast category", "byCategory", true], ["Forecast source", "bySource", false]].forEach(function (sec) {
+  [["Forecast category", "byCategory", true], ["Forecast source", "bySource", false], ["Weight basis", "bySegment", false]].forEach(function (sec) {
     const ch = add([sec[0], "Rows", "Full value $", "Weighted $", sec[2] ? "Weight" : ""]);
     compHdrs.push(ch);
     const data = s.composition[sec[1]];
@@ -1579,7 +1591,7 @@ function FY27_writeReview_(ss, result) {
   const covHdr = add(["Month coverage", "Booked $", "Forecast $ (full value)", "Weighted forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
   result.coverage.forEach(function (c) {
     const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.weighted, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
-    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"]);
+    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"], [rr, 5, "#,##0"], [rr, 6, "#,##0"]);
   });
   add([]);
   const flagHdr = add(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked", ""]);
@@ -1712,7 +1724,7 @@ function FY27_writeBacktest_(ss, bt) {
   const cfg = FY27_CFG;
   const sum = ss.getSheetByName(cfg.SHEETS.BT_SUMMARY) || ss.insertSheet(cfg.SHEETS.BT_SUMMARY);
   const det = ss.getSheetByName(cfg.SHEETS.BT_DETAIL) || ss.insertSheet(cfg.SHEETS.BT_DETAIL);
-  sum.clear(); sum.clearFormats(); det.clear(); det.clearFormats();
+  sum.clear(); sum.clearFormats(); FY27_resetFormats_(sum); det.clear(); det.clearFormats(); FY27_resetFormats_(det);
   const rows = [], fmt = [];
   const add = function (r) { while (r.length < 7) r.push(""); rows.push(r); return rows.length; };
   add(["Backtest: engine logic on the 2025 baseline vs the final 2026 forecast"]);
@@ -1788,7 +1800,7 @@ function FY27_writeBacktest_(ss, bt) {
 
   // every compared line with its features, so the signals can be mined offline
   const allSh = ss.getSheetByName(cfg.SHEETS.BT_ALL) || ss.insertSheet(cfg.SHEETS.BT_ALL);
-  allSh.clear(); allSh.clearFormats();
+  allSh.clear(); allSh.clearFormats(); FY27_resetFormats_(allSh);
   const ah = ["Account", "Org ID", "Product Group", "2026 Month", "Baseline $", "Engine $", "Team $", "Engine band", "Team band", "Team category",
     "Team outreach", "Rating", "CSM", "Source", "Cohort total $", "Engine/baseline", "Contract end", "Months to contract end",
     "Booked same month in 2024", "2024 total (group)", "Engine flags", "OTC estimate $", "Segment", "Engine weighted $"];
