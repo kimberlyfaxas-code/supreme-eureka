@@ -82,7 +82,7 @@ engine flagged a given way) and a year-level (account x product group) compariso
 check, not an accuracy score.
 
 ## Tests
-`node apps-script-fy27/test/engine.test.js` (pure engine, synthetic fixtures mirroring the Forecast Goals examples).
+`node apps-script-fy27/test/engine.test.js` (pure engine) and `node apps-script-fy27/test/writers.test.js` (sheet writers against a fake SpreadsheetApp that checks range sizes). Do NOT paste the test files into Apps Script.
 
 ## Not built yet
 Dynamic dashboards (next step: formula-driven views over the `Forecast` tab).

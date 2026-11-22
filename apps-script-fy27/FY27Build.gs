@@ -179,8 +179,9 @@ function FY27_writeReview_(ss, result) {
   let r = add(["Built", new Date(), "Actuals complete through", FY27_addMonths_(s.actualsThrough, -1)]);
   fmt.push([r, 2, "yyyy-mm-dd hh:mm"]);
   add(["Forecast rows", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched]);
-  r = add(["Total forecast $ (full value)", s.total, "Weighted total $ (At Risk etc. weighted)", s.totalWeighted, "Overrides applied", s.overridesApplied, "Adjustments derived", s.derivedAdjustments]);
+  r = add(["Total forecast $ (full value)", s.total, "Weighted total $ (At Risk etc. weighted)", s.totalWeighted]);
   fmt.push([r, 2, "$#,##0"], [r, 4, "$#,##0"]);
+  add(["Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
   r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
@@ -205,7 +206,9 @@ function FY27_writeReview_(ss, result) {
     const rr = add([x.severity, x.flag, x.account, x.productGroup + " / " + x.productName, FY27_monthToDate_(x.forecastMonth), x.valueIfBooked]);
     fmt.push([rr, 5, "mmm-yy"], [rr, 6, "$#,##0"]);
   });
-  sh.getRange(1, 1, rows.length, width).setValues(rows);
+  const w = rows.reduce(function (m, r) { return Math.max(m, r.length); }, width);   // never let a row outgrow the range
+  rows.forEach(function (r) { while (r.length < w) r.push(""); });
+  sh.getRange(1, 1, rows.length, w).setValues(rows);
   fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
   [blHdr, covHdr, flagHdr].forEach(function (h) { sh.getRange(h, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6"); });
@@ -363,7 +366,9 @@ function FY27_writeBacktest_(ss, bt) {
     const r = add([FY27_monthToDate_(m), x.baseline, x.engine, x.engineWeighted, x.team]);
     fmt.push([r, 1, "mmm-yy"], [r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"], [r, 5, "$#,##0"]);
   });
-  sum.getRange(1, 1, rows.length, 7).setValues(rows);
+  const bw = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 7);
+  rows.forEach(function (r) { while (r.length < bw) r.push(""); });
+  sum.getRange(1, 1, rows.length, bw).setValues(rows);
   fmt.forEach(function (f) { sum.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sum.getRange(1, 1).setFontWeight("bold").setFontSize(14);
   hdrs.forEach(function (h) { sum.getRange(h, 1, 1, 7).setFontWeight("bold").setBackground("#E7EDF6"); });
