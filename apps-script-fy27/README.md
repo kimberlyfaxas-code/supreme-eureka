@@ -92,6 +92,12 @@ on the **Forecast Overrides** tab (dropdowns). The weighted forecast follows the
 OTC estimates are what the rep expected at signing; actual enrollment moves through the term. A cohort with no Tableau baseline line is sized
 from the same cohort's (same account + cohort_name) most recent actual enrollment x the upcoming price, else the account's actual-vs-estimate history.
 
+## Predicted additional cohorts (`EXTRA_COHORTS`)
+For each Tableau baseline row the engine counts the cohorts (booked OTC orders) that made it up last year and the OTC cohorts now expected in the same
+window. If there are more now (e.g. 4 last year, 5 predicted), the extra cohort(s) add value on top of the baseline: each is valued at last year's average
+cohort value (baseline / last year's count), source `OTC`, category `EXTRA_COHORT_CATEGORY` (At Risk, so weighted 55% until it books). The first-time (roster chasing)
+cohorts are chosen as the extras. The baseline itself is not diluted: the other cohorts still add up to the Tableau baseline. Not applied to gray/black accounts.
+
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /
 Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line Key`.

@@ -715,4 +715,39 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const fresh = run(t, [next]);
   assert.strictEqual(fresh.lines.find((x) => x.forecastMonth === "2027-08").forecastAmount, 4000);
 }
+// 45. Predicted additional cohorts: 4 cohorts last year, 5 predicted -> the 5th adds value on top of the baseline
+{
+  const F = "0014u000025EXTRA45";
+  const prev = [1, 2, 3, 4].map((i) => otc({ "Full ID": F, "cohort_name": "Class " + i, "Cohort Code (if present, then this is a rebooking)": "K" + i, "order_status": "Complete",
+    "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": "1000", "Estimated # of Students": "10", "order_enrollment_final": "10", "Price Per Student": "100" }));
+  const next = [1, 2, 3, 4].map((i) => otc({ "Full ID": F, "cohort_name": "Class " + i, "Cohort Code (if present, then this is a rebooking)": "K" + i,
+    "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1000" }))
+    .concat([otc({ "Full ID": F, "cohort_name": "Class 5 (new)", "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1000" })]);
+  const t = (rating) => [tab({ "FULL ID": F, "Rating": rating || "Green", "Baseline Amount - Tableau": "4000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })];
+  CFG.AMOUNT_BASIS = "baseline";
+  const r = run(t(), prev.concat(next));
+  const ex = r.lines.filter((l) => l.forecastSource === "OTC");
+  assert.strictEqual(ex.length, 1, "one additional cohort line");
+  assert.strictEqual(ex[0].forecastAmount, 1000);                       // last year's average cohort value
+  assert.strictEqual(ex[0].expectation, "At Risk");
+  assert.strictEqual(ex[0].weightedAmount, 550);
+  assert.strictEqual(ex[0].cohortNames, "Class 5 (new)");               // the first-time (roster chasing) cohort is the extra one
+  assert.ok(ex[0].flags.some((f) => /OTC expects 5 cohorts vs 4 last year/.test(f)));
+  const mainTotal = r.lines.filter((l) => l.forecastSource === "Tableau").reduce((s, l) => s + l.forecastAmount, 0);
+  assert.strictEqual(Math.round(mainTotal), 4000);                       // the baseline is not diluted by the extra cohort
+  assert.strictEqual(Math.round(r.stats.total), 5000);
+  // no history of last year's cohorts -> nothing to compare with, no extras
+  const noHist = run(t(), next);
+  assert.strictEqual(noHist.lines.filter((l) => l.forecastSource === "OTC").length, 0);
+  // fewer or equal cohorts -> no extras
+  const same = run(t(), prev.concat(next.slice(0, 4)));
+  assert.strictEqual(same.lines.filter((l) => l.forecastSource === "OTC").length, 0);
+  // gray account: not applied
+  const gray = run(t("Gray"), prev.concat(next));
+  assert.strictEqual(gray.lines.filter((l) => l.forecastSource === "OTC").length, 0);
+  CFG.EXTRA_COHORTS = false;
+  assert.strictEqual(run(t(), prev.concat(next)).lines.filter((l) => l.forecastSource === "OTC").length, 0);
+  CFG.EXTRA_COHORTS = true;
+  CFG.AMOUNT_BASIS = "otc";
+}
 console.log("all engine tests passed");

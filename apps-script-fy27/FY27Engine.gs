@@ -425,6 +425,22 @@ function FY27_buildForecast(input, cfg) {
     }
   });
 
+  // how many cohorts (booked OTC orders) made up each baseline row last year? (same nearest-row assignment as the upcoming cohorts)
+  const lastCount = new Map();
+  otcAll.forEach(function (o) {
+    if (o.dne || !o.booked || !o.actStart || FY27_yearOf_(o.actStart) !== year - 1) return;
+    const cands = (baseByAcctGroup[o.fullId + "|" + o.group] || []).filter(function (b) {
+      return !b.isBOS && !b.isAdj && b.baseMonth && FY27_familiesCompatible_(b.family, o.family);
+    });
+    let best = null, bestD = Infinity;
+    cands.forEach(function (b) {
+      const d = Math.abs(FY27_monthDiff_(o.actStart, b.baseMonth));
+      const tie = d === bestD && best && b.family === o.family && best.family !== o.family;
+      if (d < bestD || tie) { best = b; bestD = d; }
+    });
+    if (best && bestD <= cfg.MATCH_TOLERANCE_MONTHS) lastCount.set(best, (lastCount.get(best) || 0) + 1);
+  });
+
   /**
    * Credit type (New vs Renewal) is decided at the account + PRODUCT GROUP level:
    *  1. If the group already has a Tableau baseline line, the next booking is whatever Tableau
@@ -539,6 +555,22 @@ function FY27_buildForecast(input, cfg) {
   base.forEach(function (b) {
     const attrs = attrsFromBaseline(b);
     let matches = assigned.get(b) || [];
+    // predicted additional cohorts: more upcoming cohorts than last year's booked cohorts -> the extras add value on top of the baseline
+    let extras = [], extraNote = "", extraAvg = 0;
+    if (cfg.EXTRA_COHORTS && matches.length && b.baseAmt > 0 && !b.isAdj && !restrictedAccount(b.fullId)) {
+      const lastN = lastCount.get(b) || 0;
+      if (lastN > 0 && matches.length > lastN) {
+        const nExtra = matches.length - lastN;
+        extraAvg = FY27_round2_(b.baseAmt / lastN);
+        // extras: not-yet-booked first, first-time (roster chasing) cohorts first, latest month first
+        const ranked = matches.slice().sort(function (x, y) {
+          return (x.booked - y.booked) || (x.isRebooking - y.isRebooking) || (y.month < x.month ? -1 : y.month > x.month ? 1 : 0);
+        });
+        extras = ranked.slice(0, nExtra);
+        matches = matches.filter(function (o) { return extras.indexOf(o) < 0; });
+        extraNote = "Additional cohort: OTC expects " + (lastN + nExtra) + " cohorts vs " + lastN + " last year (+" + nExtra + " x $" + Math.round(extraAvg).toLocaleString() + " average cohort value)";
+      }
+    }
     let otcDiffers = "";
     if (matches.length && b.baseAmt > 0 && cfg.MATCH_AMOUNT_BAND && !matches.some(function (o) { return o.booked; })) {
       const tot = matches.reduce(function (t, o) { return t + o.total; }, 0);
@@ -629,6 +661,26 @@ function FY27_buildForecast(input, cfg) {
         }
         applyRatingAndAdj(L, b, !o.booked);
         lines.push(L);
+      });
+      extras.forEach(function (o) {
+        const X = makeLine(attrs);
+        X.productGroup = b.group; X.productName = o.productName || b.productName;
+        X.forecastSource = cfg.SOURCES.OTC;
+        X.contractId = o.contractId; X.contractStart = o.contractStart; X.contractEnd = o.contractEnd;
+        X.forecastMonth = o.month;
+        X.baselineAmount = 0;
+        X.estStudents = o.estStudents; X.price = o.price; X.otcEstimate = o.total;
+        X.cohortNames = o.cohortName; X.cohortCodes = o.cohortCode;
+        X.productCode = o.productCode; X.productType = o.productType; X.modality = o.modality; X.otcProgram = o.otcProgram; X.termMonths = o.termMonths;
+        X.bookingId = o.bookingId;
+        X.bookingType = o.isRebooking ? "Rebooking" : "Roster Chasing";
+        X.status = o.booked ? "Booked" : "Forecast";
+        X.stage = o.booked ? "Submitted" : (o.isRebooking ? "Not needed" : "Not started");
+        X.forecastAmount = o.booked ? o.total : extraAvg;
+        X.expectation = o.booked ? "Captured" : cfg.EXTRA_COHORT_CATEGORY;
+        X.flags.push(extraNote);
+        applyRatingAndAdj(X, null, !o.booked);
+        lines.push(X);
       });
       writeback[b.row] = {
         contractId: matches.map(function (o) { return o.contractId; }).filter(Boolean).filter(function (v, i, a) { return a.indexOf(v) === i; }).join("; "),

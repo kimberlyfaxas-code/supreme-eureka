@@ -130,6 +130,13 @@ const FY27_CFG = {
   NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error"],
   ROSTER_STAGES: ["Not started", "In progress", "Received - held", "Submitted", "Not needed"],
 
+  // Additional predicted cohorts. If OTC expects more cohorts in a term than the same account + product actually booked last year
+  // (e.g. 4 last year, 5 predicted), the extra cohort(s) add value on top of the Tableau baseline: each is valued at last year's average
+  // cohort value (baseline / last year's cohort count), source "OTC", Forecast Category EXTRA_COHORT_CATEGORY (weighted like any At Risk
+  // line until it books). Not applied to gray/black accounts.
+  EXTRA_COHORTS: true,
+  EXTRA_COHORT_CATEGORY: "At Risk",
+
   // Cohort size for OTC cohorts that have no Tableau baseline line (the amount cannot come from a baseline):
   //  "actual"   = the same cohort's most recent ACTUAL (final) enrollment, else the account's actual-vs-estimate history x OTC estimate.
   //               OTC estimates are what the rep expected at signing; actual enrollment changes through the term (adds / drops).
