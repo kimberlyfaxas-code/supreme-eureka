@@ -135,8 +135,16 @@ const FY27_CFG = {
   // Write match results back into the empty OTC columns of the Tableau tab
   WRITE_BACK_TO_TABLEAU: true,
 
-  // Values in OTC order_status that mean "actually booked"
-  OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "booked"],
+  // Values in OTC order_status that mean "actually booked". The Nov-2026 export has: Complete 11,214; Roster 5,635; Invoicing 382;
+  // AR Review 90; Controller 21; Booking 1. Everything except Roster carries an actual start date and final enrollment, so all
+  // of them are booked orders moving through billing. (Any other non-Roster status with an actual start date also counts.)
+  OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "invoicing", "ar review", "controller", "booking", "booked"],
+
+  // What makes an OTC cohort a "rebooking" (vs roster chasing = first time it will be booked):
+  //  "code"   = a Cohort Code is present (the OTC header says: if present, this is a rebooking)
+  //  "period" = Cohort Code present OR Cohort Code Billing Period >= 2 (period 1 = the first time the cohort books, per Forecast Goals)
+  // In the Nov-2026 export, 337 of the 2,407 Roster rows starting in 2027 have billing period 2+ but no cohort code.
+  REBOOKING_BASIS: "code",
 
   // Billing IDs that start with "A" + digits are BOS (new billing system) and never appear in OTC
   BOS_ID_REGEX: "^A\\d+$"

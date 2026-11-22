@@ -629,4 +629,32 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   CFG.AMOUNT_BASIS = "baseline"; assert.strictEqual(Math.round(total(run(t, small))), 1000);
   CFG.AMOUNT_BASIS = "otc";
 }
+// 39. Every non-Roster OTC status with an actual start is a booked order (Invoicing, AR Review, Controller, Booking)
+{
+  ["Invoicing", "AR Review", "Controller", "Booking", "Complete"].forEach((status) => {
+    const F = "0014u000025STATUS" + status.slice(0, 2);
+    const r = run([tab({ "FULL ID": F })], [otc({ "Full ID": F, "order_status": status, "order_actual_start_date": "2027-02-01", "order_estimated_start_date": "2027-02-01" })]);
+    assert.strictEqual(r.lines[0].status, "Booked", status);
+    assert.strictEqual(r.lines[0].expectation, "Captured", status);
+  });
+  const roster = run([tab({ "FULL ID": "0014u000025STATUSRO" })], [otc({ "Full ID": "0014u000025STATUSRO" })]);
+  assert.strictEqual(roster.lines[0].status, "Forecast");
+}
+// 40. REBOOKING_BASIS: billing period 2+ with no cohort code is a rebooking only when the basis is "period"
+{
+  const F = "0014u000025PERIOD1";
+  const row = otc({ "Full ID": F, "Cohort Code Billing Period": "3" });
+  CFG.REBOOKING_BASIS = "code";   assert.strictEqual(run([tab({ "FULL ID": F })], [row]).lines[0].bookingType, "Roster Chasing");
+  CFG.REBOOKING_BASIS = "period"; assert.strictEqual(run([tab({ "FULL ID": F })], [row]).lines[0].bookingType, "Rebooking");
+  CFG.REBOOKING_BASIS = "code";
+}
+// 41. Helpful OTC info (product code, program, type, modality, term length) is carried to the forecast line
+{
+  const F = "0014u000025OTCINFO";
+  const r = run([tab({ "FULL ID": F })], [otc({ "Full ID": F, "product_code": "OLNCLSYR", "program": "NCLEX RN", "product_type": "Curriculum Plus", "product_modality": "SELF-PACED",
+    "order_estimated_start_date": "2027-02-01", "order_estimated_end_date": "2027-08-01" })]);
+  const l = r.lines[0];
+  assert.strictEqual(l.productCode, "OLNCLSYR"); assert.strictEqual(l.otcProgram, "NCLEX RN");
+  assert.strictEqual(l.productType, "Curriculum Plus"); assert.strictEqual(l.modality, "SELF-PACED"); assert.strictEqual(l.termMonths, "6");
+}
 console.log("all engine tests passed");

@@ -140,8 +140,16 @@ const FY27_CFG = {
   // Write match results back into the empty OTC columns of the Tableau tab
   WRITE_BACK_TO_TABLEAU: true,
 
-  // Values in OTC order_status that mean "actually booked"
-  OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "booked"],
+  // Values in OTC order_status that mean "actually booked". The Nov-2026 export has: Complete 11,214; Roster 5,635; Invoicing 382;
+  // AR Review 90; Controller 21; Booking 1. Everything except Roster carries an actual start date and final enrollment, so all
+  // of them are booked orders moving through billing. (Any other non-Roster status with an actual start date also counts.)
+  OTC_BOOKED_STATUSES: ["complete", "completed", "invoiced", "invoicing", "ar review", "controller", "booking", "booked"],
+
+  // What makes an OTC cohort a "rebooking" (vs roster chasing = first time it will be booked):
+  //  "code"   = a Cohort Code is present (the OTC header says: if present, this is a rebooking)
+  //  "period" = Cohort Code present OR Cohort Code Billing Period >= 2 (period 1 = the first time the cohort books, per Forecast Goals)
+  // In the Nov-2026 export, 337 of the 2,407 Roster rows starting in 2027 have billing period 2+ but no cohort code.
+  REBOOKING_BASIS: "code",
 
   // Billing IDs that start with "A" + digits are BOS (new billing system) and never appear in OTC
   BOS_ID_REGEX: "^A\\d+$"
@@ -317,9 +325,12 @@ function FY27_familiesCompatible_(a, b) {
 /* ---------------- normalizers ---------------- */
 
 function FY27_normOtc_(r, cfg) {
-  const booked = (cfg.OTC_BOOKED_STATUSES || []).indexOf(FY27_str_(r["order_status"]).toLowerCase()) >= 0;
+  const statusLc = FY27_str_(r["order_status"]).toLowerCase();
   const estStart = FY27_monthKey_(FY27_pick_(r, ["order_estimated_start_date"]));
   const actStart = FY27_monthKey_(FY27_pick_(r, ["order_actual_start_date"]));
+  const booked = (cfg.OTC_BOOKED_STATUSES || []).indexOf(statusLc) >= 0 || (statusLc !== "" && statusLc !== "roster" && !!actStart);
+  const period = FY27_num_(FY27_pick_(r, ["Cohort Code Billing Period"]));
+  const code = FY27_str_(FY27_pick_(r, ["Cohort Code (if present, then this is a rebooking)", "Cohort Code", "cohort_code"]));
   const group = FY27_str_(FY27_pick_(r, ["Product Group", "reporting_group"]));
   const pname = FY27_str_(FY27_pick_(r, ["Product Name", "product_name"]));
   const est = FY27_num_(FY27_pick_(r, ["Estimated # of Students", "order_enrollment_estimate"]));
@@ -336,7 +347,17 @@ function FY27_normOtc_(r, cfg) {
     contractStart: FY27_monthKey_(FY27_pick_(r, ["Contract Start Date", "contract_start_date"])),
     contractEnd: FY27_monthKey_(FY27_pick_(r, ["Contract End Date", "contract_end_date"])),
     cohortName: FY27_str_(FY27_pick_(r, ["cohort_name"])),
-    cohortCode: FY27_str_(FY27_pick_(r, ["Cohort Code (if present, then this is a rebooking)", "Cohort Code", "cohort_code"])),
+    cohortCode: code,
+    billingPeriod: period,
+    isRebooking: !!code || (cfg.REBOOKING_BASIS === "period" && period >= 2),
+    productCode: FY27_str_(FY27_pick_(r, ["product_code"])),
+    productType: FY27_str_(FY27_pick_(r, ["product_type"])),
+    modality: FY27_str_(FY27_pick_(r, ["product_modality"])),
+    otcProgram: FY27_str_(FY27_pick_(r, ["program", "opportunity_program"])),
+    termMonths: (function () {
+      const a = FY27_monthKey_(FY27_pick_(r, ["order_estimated_start_date"])), z = FY27_monthKey_(FY27_pick_(r, ["order_estimated_end_date"]));
+      return a && z ? FY27_monthDiff_(z, a) : "";
+    })(),
     dne: FY27_bool_(r["cohort_dne_flag"]),
     status: FY27_str_(r["order_status"]),
     booked: booked,
@@ -491,7 +512,7 @@ function FY27_buildForecast(input, cfg) {
   const ignoredRoster = { cohorts: 0, value: 0 };
   // OTC rows that land in the forecast year (not flagged DNE)
   const target = otcAll.filter(function (o) { return !o.dne && FY27_yearOf_(o.month) === year; }).filter(function (o) {
-    if (cfg.IGNORE_ROSTER_CHASING_GRAY_BLACK && !o.booked && !o.cohortCode && restrictedAccount(o.fullId)) {
+    if (cfg.IGNORE_ROSTER_CHASING_GRAY_BLACK && !o.booked && !o.isRebooking && restrictedAccount(o.fullId)) {
       ignoredRoster.cohorts++; ignoredRoster.value += o.total;
       return false;
     }
@@ -592,6 +613,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
+      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
@@ -689,7 +711,7 @@ function FY27_buildForecast(input, cfg) {
       // one forecast line per OTC cohort order (month-accurate); baseline amount sits on the first line only
       matches.sort(function (x, y) { return x.month < y.month ? -1 : x.month > y.month ? 1 : 0; });
       let hasCode = false, hasNoCode = false;
-      matches.forEach(function (o) { if (o.cohortCode) hasCode = true; else hasNoCode = true; });
+      matches.forEach(function (o) { if (o.isRebooking) hasCode = true; else hasNoCode = true; });
       const bookingType = hasCode && hasNoCode ? "Mix" : hasCode ? "Rebooking" : "Roster Chasing";
       const otcEstTotal = matches.reduce(function (t, o) { return t + o.total; }, 0);
       // baseline $ lands on the line in the baseline's own forecast month (else the first line)
@@ -710,6 +732,7 @@ function FY27_buildForecast(input, cfg) {
         L.estStudents = o.estStudents;
         L.price = o.price;
         L.cohortNames = o.cohortName;
+        L.productCode = o.productCode; L.productType = o.productType; L.modality = o.modality; L.otcProgram = o.otcProgram; L.termMonths = o.termMonths;
         L.cohortCodes = o.cohortCode;
         L.priorCohorts = i === baseIdx ? prior : "";
         L.bookingType = bookingType;
@@ -860,7 +883,8 @@ function FY27_buildForecast(input, cfg) {
       contractId: o.contractId, contractStart: o.contractStart, contractEnd: o.contractEnd,
       forecastMonth: o.month, estStudents: o.estStudents, price: o.price, bookingId: o.bookingId,
       cohortNames: o.cohortName, cohortCodes: o.cohortCode,
-      bookingType: o.cohortCode ? "Rebooking" : "Roster Chasing",
+      productCode: o.productCode, productType: o.productType, modality: o.modality, otcProgram: o.otcProgram, termMonths: o.termMonths,
+      bookingType: o.isRebooking ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
       forecastAmount: o.total, otcEstimate: o.total,
       expectation: o.booked ? "Captured" : "Expected"
@@ -1145,6 +1169,8 @@ function FY27_mergeLines_(parts, makeLine) {
   L.contractId = join("contractId");
   L.cohortNames = join("cohortNames");
   L.cohortCodes = join("cohortCodes");
+  L.productCode = join("productCode"); L.productType = join("productType"); L.modality = join("modality"); L.otcProgram = join("otcProgram");
+  L.termMonths = join("termMonths");
   L.priorCohorts = join("priorCohorts");
   L.creditBasis = join("creditBasis");
   L.priorBookingType = join("priorBookingType");
@@ -1269,6 +1295,11 @@ const FY27_FORECAST_COLUMNS = [
   ["Cohort Names", "cohortNames"],
   ["Cohort Codes", "cohortCodes"],
   ["Prior-Year Cohorts", "priorCohorts"],
+  ["Product Code (OTC)", "productCode"],
+  ["Program (OTC)", "otcProgram"],
+  ["Product Type (OTC)", "productType"],
+  ["Modality (OTC)", "modality"],
+  ["Term (months, OTC)", "termMonths"],
   ["2027 Booking Type", "bookingType"],
   ["Credit Type", "credit"],
   ["Credit Basis", "creditBasis"],
