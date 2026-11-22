@@ -566,4 +566,13 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const b = run([tab({ "FULL ID": G })], [], [], [{ "Line Key": a.lines[0].key, "Exclude": "TRUE" }]);
   assert.strictEqual(b.lines[0].weightedAmount, 0);
 }
+// 36. Composition stats add up to the totals
+{
+  const r = run([tab({ "FULL ID": "0014u000025COMPOS1" }), tab({ "FULL ID": "0014u000025COMPOS2", "Adjustment (true/false)": "TRUE" })], []);
+  const cat = r.stats.composition.byCategory;
+  const full = Object.keys(cat).reduce((s, k) => s + cat[k].full, 0);
+  const wtd = Object.keys(cat).reduce((s, k) => s + cat[k].weighted, 0);
+  assert.strictEqual(full, r.stats.total);
+  assert.ok(Math.abs(wtd - r.stats.totalWeighted) < 0.01);
+}
 console.log("all engine tests passed");

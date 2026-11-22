@@ -20,7 +20,7 @@ function makeSheet(name) {
     setNumberFormat() { return this; }, setFontWeight() { return this; }, setFontSize() { return this; },
     setBackground() { return this; }, insertCheckboxes() { return this; }
   });
-  sh.clear = () => sh; sh.setFrozenRows = () => sh; sh.autoResizeColumns = () => sh; sh.setColumnWidth = () => sh;
+  sh.clear = () => sh; sh.clearFormats = () => sh; sh.setFrozenRows = () => sh; sh.autoResizeColumns = () => sh; sh.setColumnWidth = () => sh;
   sh.getLastRow = () => 1; sh.getLastColumn = () => 1;
   return sh;
 }

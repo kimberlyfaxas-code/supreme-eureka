@@ -137,7 +137,7 @@ function FY27_monthToDate_(key) {
 
 function FY27_writeForecast_(ss, lines, name) {
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
-  sh.clear();
+  sh.clear(); sh.clearFormats();
   const cols = FY27_FORECAST_COLUMNS.filter(function (c) {
     return FY27_CFG.TAG_CREDIT || (c[1] !== "credit" && c[1] !== "creditBasis");
   });
@@ -168,7 +168,7 @@ function FY27_writeForecast_(ss, lines, name) {
 function FY27_writeReview_(ss, result) {
   const name = FY27_CFG.SHEETS.REVIEW;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
-  sh.clear();
+  sh.clear(); sh.clearFormats();
   const s = result.stats;
   const width = 7;
   const rows = [];
@@ -195,6 +195,19 @@ function FY27_writeReview_(ss, result) {
   fmt.push([r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "$#,##0"], [r, 5, "$#,##0"]);
   add(["(Difference = baseline whose forecast month falls outside " + FY27_CFG.FORECAST_YEAR + ", or rows with no forecast month)"]);
   add([]);
+  // what the forecast is made of
+  const compHdrs = [];
+  [["Forecast category", "byCategory", true], ["Forecast source", "bySource", false]].forEach(function (sec) {
+    const ch = add([sec[0], "Rows", "Full value $", "Weighted $", sec[2] ? "Weight" : ""]);
+    compHdrs.push(ch);
+    const data = s.composition[sec[1]];
+    Object.keys(data).sort(function (a, b) { return data[b].full - data[a].full; }).forEach(function (k) {
+      const x = data[k];
+      const rr = add([k, x.n, x.full, x.weighted, sec[2] ? (FY27_CFG.WEIGHTS[k] === undefined ? 1 : FY27_CFG.WEIGHTS[k]) : ""]);
+      fmt.push([rr, 2, "#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"], [rr, 5, "0%"]);
+    });
+    add([]);
+  });
   const covHdr = add(["Month coverage", "Booked $", "Forecast $ (full value)", "Weighted forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
   result.coverage.forEach(function (c) {
     const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.weighted, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
@@ -211,6 +224,7 @@ function FY27_writeReview_(ss, result) {
   sh.getRange(1, 1, rows.length, w).setValues(rows);
   fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
+  compHdrs.forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
   [blHdr, covHdr, flagHdr].forEach(function (h) { sh.getRange(h, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6"); });
   sh.setColumnWidth(2, 460);
   sh.autoResizeColumns(1, 1);
@@ -316,7 +330,7 @@ function FY27_writeBacktest_(ss, bt) {
   const cfg = FY27_CFG;
   const sum = ss.getSheetByName(cfg.SHEETS.BT_SUMMARY) || ss.insertSheet(cfg.SHEETS.BT_SUMMARY);
   const det = ss.getSheetByName(cfg.SHEETS.BT_DETAIL) || ss.insertSheet(cfg.SHEETS.BT_DETAIL);
-  sum.clear(); det.clear();
+  sum.clear(); sum.clearFormats(); det.clear(); det.clearFormats();
   const rows = [], fmt = [];
   const add = function (r) { while (r.length < 7) r.push(""); rows.push(r); return rows.length; };
   add(["Backtest: engine logic on the 2025 baseline vs the final 2026 forecast"]);
@@ -392,7 +406,7 @@ function FY27_writeBacktest_(ss, bt) {
 
   // every compared line with its features, so the signals can be mined offline
   const allSh = ss.getSheetByName(cfg.SHEETS.BT_ALL) || ss.insertSheet(cfg.SHEETS.BT_ALL);
-  allSh.clear();
+  allSh.clear(); allSh.clearFormats();
   const ah = ["Account", "Org ID", "Product Group", "2026 Month", "Baseline $", "Engine $", "Team $", "Engine band", "Team band", "Team category",
     "Team outreach", "Rating", "CSM", "Source", "Cohort total $", "Engine/baseline", "Contract end", "Months to contract end",
     "Booked same month in 2024", "2024 total (group)", "Engine flags"];

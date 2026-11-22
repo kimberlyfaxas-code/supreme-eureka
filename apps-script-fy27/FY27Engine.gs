@@ -810,6 +810,16 @@ function FY27_buildForecast(input, cfg) {
       actualsThrough: actualsThrough,
       lines: lines.length,
       detailLines: detail.length,
+      composition: (function () {
+        const out = { byCategory: {}, bySource: {} };
+        lines.forEach(function (L) {
+          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"]].forEach(function (p) {
+            const x = out[p[0]][p[1]] || (out[p[0]][p[1]] = { n: 0, full: 0, weighted: 0 });
+            x.n++; x.full += L.forecastAmount; x.weighted += L.weightedAmount;
+          });
+        });
+        return out;
+      })(),
       ignoredRosterChasing: ignoredRoster,
       derivedAdjustments: derivedAdj,
       likelyAdjustments: likelyAdj,
