@@ -801,4 +801,19 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.ok(seg["Med course, no cohort"], JSON.stringify(Object.keys(seg)));
   assert.strictEqual(Object.keys(seg).reduce((s2, k) => s2 + seg[k].full, 0), r.stats.total);
 }
+// 49. As-of backtest ignores orders created after the backtest year began (a renewal signed in 2026 is not visible on 1 Jan 2026)
+{
+  const BT2 = new Function(engSrc + "\n" + fs.readFileSync(path.join(__dirname, "../FY27Backtest.gs"), "utf8") + "\nreturn { FY27_backtest_ };")();
+  const ORG = "001ORGAAAAAAAAB1";
+  const beg = [{ "Student Org ID": ORG, "Forecast Source": "System Forecast", "Forecast Line Type": "Forecast", "Health Rating": "Green", "Account Name": "A", "Product Group": "NURSING COURSE", "Baseline Month": "Feb-26", "Baseline Amount": "$1,000" }];
+  const fin = [{ "Student Org ID": ORG, "Forecast Line Type": "Forecast", "Account Name": "A", "Product Group": "NURSING COURSE", "Baseline Month": "2/1/2026", "Baseline Amount": "1000", "Forecast Amount": "1000", "Forecast Category": "Captured - On Time" }];
+  const old = { "Full ID": "0014u000025SFASOF1", "Product Group": "NURSING COURSE", "Product Name": "Curriculum Plus", "program": "NCLEX RN", "order_status": "Complete", "order_actual_start_date": "2025-02-01",
+    "order_estimated_start_date": "2025-02-01", "order_created_date": "2025-01-15", "Contract End Date": "2025-12-01", "Estimated or Actual Order Total": "1000" };
+  const renewal = Object.assign({}, old, { "order_status": "Roster", "order_actual_start_date": "", "order_estimated_start_date": "2026-02-01", "order_created_date": "2026-03-10", "Contract End Date": "2028-01-01" });
+  const sf = [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFASOF1" }];
+  const withLeak = BT2.FY27_backtest_({ beginning: beg, final: fin, salesforce: sf, otc: [old, renewal], actuals: [] }, Object.assign({}, CFG, { BT_AS_OF_DROP_CREATED_AFTER: false }));
+  const asOf = BT2.FY27_backtest_({ beginning: beg, final: fin, salesforce: sf, otc: [old, renewal], actuals: [] }, Object.assign({}, CFG, { BT_AS_OF_DROP_CREATED_AFTER: true }));
+  assert.ok(!/ended/i.test(withLeak.all[0].segment));      // leak: the later renewal makes the contract look live
+  assert.strictEqual(asOf.all[0].segment, "Contract ended before month");   // as of 1 Jan 2026 the contract had ended
+}
 console.log("all engine tests passed");

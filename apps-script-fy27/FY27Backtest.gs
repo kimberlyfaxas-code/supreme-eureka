@@ -98,17 +98,24 @@ function FY27_backtest_(input, cfg) {
   });
   // As-of view: remove what only became known during the backtest year
   let otcRows = input.otc;
+  if (cfg.BT_AS_OF && cfg.BT_AS_OF_DROP_CREATED_AFTER) {
+    const asOfStart = year + "-01";
+    otcRows = otcRows.filter(function (r) {
+      const c = FY27_monthKey_(r["order_created_date"]);
+      return !c || c < asOfStart;
+    });
+  }
   if (cfg.BT_AS_OF) {
     const codeOf = function (r) { return FY27_str_(FY27_pick_(r, ["Cohort Code (if present, then this is a rebooking)", "Cohort Code", "cohort_code"])); };
     const bookedStatuses = cfg.OTC_BOOKED_STATUSES || [];
     const doneBefore = {};
-    input.otc.forEach(function (r) {
+    otcRows.forEach(function (r) {
       const act = FY27_monthKey_(r["order_actual_start_date"]);
       if (act && FY27_yearOf_(act) < year && bookedStatuses.indexOf(FY27_str_(r["order_status"]).toLowerCase()) >= 0 && codeOf(r)) {
         doneBefore[FY27_id15_(FY27_pick_(r, ["Full ID", "account_business_org_id"])) + "|" + codeOf(r)] = true;
       }
     });
-    otcRows = input.otc.map(function (r) {
+    otcRows = otcRows.map(function (r) {
       const act = FY27_monthKey_(r["order_actual_start_date"]);
       if (!act || FY27_yearOf_(act) < year) return r;
       const o = Object.assign({}, r);

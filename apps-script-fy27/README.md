@@ -57,7 +57,8 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
 - `AMOUNT_BASIS` ("baseline" default): for a Tableau baseline row with matched OTC cohorts, the Tableau total is kept and split across the
   cohorts by their OTC share (OTC supplies timing). "min" caps OTC amounts at Tableau; "otc" uses OTC amounts + trend. "otc" = OTC amounts + trend, "baseline" = Tableau total split across cohorts. In the backtest OTC/trend amounts
   ran ~17% above what the team ended with, and trend-adjusted lines were worse than repeating the baseline.
-- Backtest runs "as of" the start of 2026 (`BT_AS_OF`): 2026 orders are treated as estimates and new cohort codes removed.
+- Backtest runs "as of" the start of 2026 (`BT_AS_OF`): 2026 orders are treated as estimates, new cohort codes are removed, and orders created after 1 Jan 2026
+  (`BT_AS_OF_DROP_CREATED_AFTER`) are dropped so a renewal signed during 2026 cannot make a contract look live on 1 Jan.
 - Dormant programs (`EXCLUDE_UNBOOKED_PROGRAMS`, `DORMANT_PROGRAM_ACTION`): a FIRST-TIME OTC cohort (no cohort code) in a program (the OTC `program` field, e.g. NCLEX RN / NCLEX PN)
   with no booking at that account in the baseline year is flagged, set At Risk and weighted down (`DORMANT_PROGRAM_WEIGHT`, placeholder 25%) so a CSM decides; set
   the action to `zero` to make it Not Expected. A coded cohort is an existing class and is never dormant. (older behavior note:) an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the

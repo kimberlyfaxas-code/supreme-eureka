@@ -157,6 +157,10 @@ const FY27_CFG = {
   // treated as estimates (students x price, no final enrollment) and cohort codes first assigned during that year are
   // removed, so the engine cannot "see" what happened. Set false to run it on the raw Nov-2026 export.
   BT_AS_OF: true,
+  // As-of also drops OTC orders that were CREATED after the backtest year began (order_created_date). A contract renewal signed during 2026 would
+  // otherwise make a 2026 line look "covered" when, on 1 Jan 2026, its contract had ended and no renewal existed yet. That leak made "contract ended"
+  // look worse than it was and pushed its weight too low.
+  BT_AS_OF_DROP_CREATED_AFTER: true,
 
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
