@@ -409,12 +409,12 @@ function FY27_writeBacktest_(ss, bt) {
   allSh.clear(); allSh.clearFormats();
   const ah = ["Account", "Org ID", "Product Group", "2026 Month", "Baseline $", "Engine $", "Team $", "Engine band", "Team band", "Team category",
     "Team outreach", "Rating", "CSM", "Source", "Cohort total $", "Engine/baseline", "Contract end", "Months to contract end",
-    "Booked same month in 2024", "2024 total (group)", "Engine flags"];
+    "Booked same month in 2024", "2024 total (group)", "Engine flags", "OTC estimate $", "Segment", "Engine weighted $"];
   const ao = [ah];
   bt.all.slice(0, 5000).forEach(function (a) {
     ao.push([a.account, a.org, a.group, FY27_monthToDate_(a.month), a.baseline, a.engine, a.team, a.engineBand, a.teamBand, a.teamCategory,
       a.outreach, a.rating, a.csm, a.source, a.cohortTotal, a.ratio, FY27_monthToDate_(a.contractEnd), a.monthsToEnd,
-      a.booked2024SameMonth, a.total2024, a.flags]);
+      a.booked2024SameMonth, a.total2024, a.flags, a.otcEst, a.segment, a.engineWeighted]);
   });
   allSh.getRange(1, 1, ao.length, ah.length).setValues(ao);
   allSh.setFrozenRows(1);

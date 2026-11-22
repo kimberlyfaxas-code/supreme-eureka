@@ -101,7 +101,31 @@ const FY27_CFG = {
   // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
   AT_RISK_BASELINE_ONLY: true,
   AT_RISK_CATEGORY: "At Risk",
+  // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the 2026 backtest, where the
+  // share of baseline dollars the team kept was: Med 2%, contract ended 33%, Red 43%, iHuman 68%, covers-year 68%, no OTC contract 93%.
+  // Fields: group (product group), rating, ended (contract ended before the month), noContract (no OTC contract data), weight.
+  AT_RISK_WEIGHT_RULES: [
+    { name: "Med course, no cohort",            group: "MED COURSE", weight: 0.10 },
+    { name: "Contract ended before month",      ended: true,         weight: 0.30 },
+    { name: "Red rating, no cohort",            rating: "red",       weight: 0.40 },
+    { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.65 },
+    { name: "No OTC contract data",             noContract: true,     weight: 0.90 },
+    { name: "Contract covers year, no cohort",  covers: true,         weight: 0.65 }
+  ],
+
+  // How a Tableau baseline row's amount is set when OTC cohorts match it:
+  //  "otc"      = OTC cohort amounts (students x price, trend-adjusted). In the 2026 backtest this ran ~17% above what the
+  //               team ended up with, and trend-adjusted lines were worse than just repeating the baseline.
+  //  "min"      = OTC cohort amounts, scaled DOWN when their total exceeds the Tableau baseline (never above Tableau). No trend.
+  //  "baseline" = Tableau baseline total, split across the OTC cohorts by their share (OTC used only for timing). No trend.
+  // Booked OTC actuals are never scaled.
+  AMOUNT_BASIS: "min",
   WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+
+  // Backtest: pretend it is the start of the backtest year. OTC orders that were actually booked during that year are
+  // treated as estimates (students x price, no final enrollment) and cohort codes first assigned during that year are
+  // removed, so the engine cannot "see" what happened. Set false to run it on the raw Nov-2026 export.
+  BT_AS_OF: true,
 
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,

@@ -8,6 +8,7 @@ const engSrc = fs.readFileSync(path.join(__dirname, "../FY27Engine.gs"), "utf8")
 const E = (function () { const module = { exports: {} }; new Function("module", engSrc)(module); return module.exports; })();
 const CFG = new Function(cfgSrc + "; return FY27_CFG;")();
 CFG.TAG_CREDIT = true;
+CFG.AMOUNT_BASIS = "otc";   // legacy amount tests; "min" / "baseline" are tested in 37-38
 CFG.USE_ADJUSTMENTS_TAB = true;   // engine tests feed the Adjustments tab in explicitly   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
 
@@ -515,6 +516,23 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.detail.length, 1);
   assert.strictEqual(r.detail[0].teamBand, "Zero");
   assert.strictEqual(r.reasons["Adjustment (likely, small line)"].teamZero, 1);
+  // as-of: an order booked in 2026 is only an estimate (students x price) and its brand-new cohort code is removed
+  const asOf = BT.FY27_backtest_({
+    beginning: [beg("Feb-26", 9000)], final: [fin("2/1/2026", 9000, 9000, "Captured - On Time")],
+    salesforce: [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFFULL01" }],
+    otc: [{ "Full ID": "0014u000025SFFULL01", "Product Group": "NURSING COURSE", "Product Name": "Curriculum Plus", "order_status": "Complete",
+      "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated # of Students": "40", "order_enrollment_final": "90",
+      "Price Per Student": "200", "Estimated or Actual Order Total": "18000", "Cohort Code (if present, then this is a rebooking)": "NEWCODE", "Contract End Date": "2028-01-01" }]
+  }, Object.assign({}, CFG, { BT_AS_OF: true, AMOUNT_BASIS: "otc" }));
+  assert.strictEqual(asOf.all[0].otcEst, 8000);                        // 40 x $200, not the $18,000 actual
+  const raw = BT.FY27_backtest_({
+    beginning: [beg("Feb-26", 9000)], final: [fin("2/1/2026", 9000, 9000, "Captured - On Time")],
+    salesforce: [{ "Student Org Id": ORG, "FULL ID": "0014u000025SFFULL01" }],
+    otc: [{ "Full ID": "0014u000025SFFULL01", "Product Group": "NURSING COURSE", "Product Name": "Curriculum Plus", "order_status": "Complete",
+      "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated # of Students": "40", "order_enrollment_final": "90",
+      "Price Per Student": "200", "Estimated or Actual Order Total": "18000", "Cohort Code (if present, then this is a rebooking)": "NEWCODE", "Contract End Date": "2028-01-01" }]
+  }, Object.assign({}, CFG, { BT_AS_OF: false, AMOUNT_BASIS: "otc" }));
+  assert.strictEqual(raw.all[0].otcEst, 18000);
 }
 // 33. OTC estimate far from baseline (or $0): baseline kept, flagged, cohorts not re-added as extra lines
 {
@@ -544,15 +562,17 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const byId = (id) => r.lines.find((l) => l.fullId === id);
   assert.strictEqual(byId(F).expectation, "At Risk");
   assert.strictEqual(byId(F).forecastAmount, 1000);
-  assert.strictEqual(byId(F).weight, 0.55);
-  assert.strictEqual(byId(F).weightedAmount, 550);
+  assert.strictEqual(byId(F).segment, "Contract covers year, no cohort");
+  assert.strictEqual(byId(F).weight, 0.65);
+  assert.strictEqual(byId(F).weightedAmount, 650);
   assert.strictEqual(byId(G).expectation, "Expected");
   assert.strictEqual(byId(G).weightedAmount, 1000);
   assert.strictEqual(byId(P).expectation, "Renewal Pending");
-  assert.strictEqual(byId(P).weightedAmount, 650);
+  assert.strictEqual(byId(P).segment, "No OTC contract data");
+  assert.strictEqual(byId(P).weightedAmount, 900);
   assert.strictEqual(r.lines.find((l) => l.studentOrgId === "A123456").expectation, "Expected");
   assert.strictEqual(r.stats.total, 4000);
-  assert.strictEqual(r.stats.totalWeighted, 550 + 1000 + 650 + 1000);
+  assert.strictEqual(r.stats.totalWeighted, 650 + 1000 + 900 + 1000);
   const jan = r.coverage.reduce((s, c) => s + c.weighted, 0);
   assert.strictEqual(jan, r.stats.totalWeighted);
 }
@@ -574,5 +594,39 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const wtd = Object.keys(cat).reduce((s, k) => s + cat[k].weighted, 0);
   assert.strictEqual(full, r.stats.total);
   assert.ok(Math.abs(wtd - r.stats.totalWeighted) < 0.01);
+}
+// 37. Segment weights for baseline-only lines: Med, contract ended, Red, iHuman
+{
+  const mk = (over, otcRows) => run([tab(Object.assign({ "FULL ID": "0014u000025SEGMENTS" }, over))], otcRows);
+  const done = (end, group) => otc({ "Full ID": "0014u000025SEGMENTS", "Product Group": group || "NURSING COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01",
+    "order_estimated_start_date": "2026-02-01", "Contract End Date": end });
+  const med = mk({ "Product Group": "MED COURSE" }, [done("2028-01-01", "MED COURSE")]);
+  assert.strictEqual(med.lines[0].weight, 0.10);
+  assert.strictEqual(med.lines[0].weightedAmount, 100);
+  const ended = mk({}, [done("2026-12-01")]);
+  assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
+  assert.strictEqual(ended.lines[0].expectation, "Renewal Pending");
+  assert.strictEqual(ended.lines[0].weightedAmount, 300);
+  const red = mk({ "Rating": "Red" }, [done("2028-01-01")]);
+  assert.strictEqual(red.lines[0].weight, 0.40);
+  const ih = mk({ "Product Group": "IHUMAN" }, [done("2028-01-01", "IHUMAN")]);
+  assert.strictEqual(ih.lines[0].weight, 0.65);
+}
+// 38. Amount basis: "min" never exceeds the Tableau baseline; "baseline" splits the baseline across cohorts; "otc" keeps OTC
+{
+  const F = "0014u000025BASIS";
+  const t = [tab({ "FULL ID": F, "Baseline Amount - Tableau": "1000" })];
+  const o = [otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "900", "cohort_name": "A" }),
+             otc({ "Full ID": F, "order_estimated_start_date": "2027-03-01", "Estimated or Actual Order Total": "600", "cohort_name": "B" })];   // OTC total 1500
+  const total = (r) => r.lines.reduce((s, l) => s + l.forecastAmount, 0);
+  CFG.AMOUNT_BASIS = "otc";      assert.strictEqual(total(run(t, o)), 1500);
+  CFG.AMOUNT_BASIS = "min";      const rm = run(t, o); assert.strictEqual(Math.round(total(rm)), 1000);
+  assert.ok(rm.lines.some((l) => l.flags.some((f) => /held to Tableau baseline/.test(f))));
+  CFG.AMOUNT_BASIS = "baseline"; assert.strictEqual(Math.round(total(run(t, o))), 1000);
+  // OTC below baseline: "min" keeps the lower OTC amount (cohort shrink), "baseline" restores the baseline
+  const small = [otc({ "Full ID": F, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "700" })];
+  CFG.AMOUNT_BASIS = "min";      assert.strictEqual(total(run(t, small)), 700);
+  CFG.AMOUNT_BASIS = "baseline"; assert.strictEqual(Math.round(total(run(t, small))), 1000);
+  CFG.AMOUNT_BASIS = "otc";
 }
 console.log("all engine tests passed");

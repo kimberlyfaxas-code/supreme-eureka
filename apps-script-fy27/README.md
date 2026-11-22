@@ -52,6 +52,12 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   (`AT_RISK_BASELINE_ONLY`). `Weighted Forecast Amount` = Forecast Amount x `WEIGHTS[Forecast Category]` (Captured/Expected 100%,
   Renewal Pending 65%, At Risk 55%, Not Expected 0%). Totals and dashboards should use the weighted amount, not the full value, so At Risk
   is not counted at 100%. Starting weights come from the 2026 backtest; recalibrate after each backtest.
+- Segment weights (`AT_RISK_WEIGHT_RULES`) for baseline-only lines, from the 2026 backtest: Med course 10%, contract ended 30%, Red 40%,
+  iHuman 65%, contract covers year 65%, no OTC contract data 90%.
+- `AMOUNT_BASIS` ("min" default): matched OTC cohort amounts are scaled down when they exceed the Tableau baseline (never above Tableau),
+  with no trend adjustment. "otc" = OTC amounts + trend, "baseline" = Tableau total split across cohorts. In the backtest OTC/trend amounts
+  ran ~17% above what the team ended with, and trend-adjusted lines were worse than repeating the baseline.
+- Backtest runs "as of" the start of 2026 (`BT_AS_OF`): 2026 orders are treated as estimates and new cohort codes removed.
 - Dormant programs: an OTC cohort for a program (account + product group + RN/PN/Step family) with no booking in the
   baseline year is Not Expected, value kept in Value If Booked, flagged for review (`EXCLUDE_UNBOOKED_PROGRAMS`). Accounts
   missing from Tableau entirely are exempt and flagged instead.

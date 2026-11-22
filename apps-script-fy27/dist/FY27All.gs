@@ -106,7 +106,31 @@ const FY27_CFG = {
   // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
   AT_RISK_BASELINE_ONLY: true,
   AT_RISK_CATEGORY: "At Risk",
+  // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the 2026 backtest, where the
+  // share of baseline dollars the team kept was: Med 2%, contract ended 33%, Red 43%, iHuman 68%, covers-year 68%, no OTC contract 93%.
+  // Fields: group (product group), rating, ended (contract ended before the month), noContract (no OTC contract data), weight.
+  AT_RISK_WEIGHT_RULES: [
+    { name: "Med course, no cohort",            group: "MED COURSE", weight: 0.10 },
+    { name: "Contract ended before month",      ended: true,         weight: 0.30 },
+    { name: "Red rating, no cohort",            rating: "red",       weight: 0.40 },
+    { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.65 },
+    { name: "No OTC contract data",             noContract: true,     weight: 0.90 },
+    { name: "Contract covers year, no cohort",  covers: true,         weight: 0.65 }
+  ],
+
+  // How a Tableau baseline row's amount is set when OTC cohorts match it:
+  //  "otc"      = OTC cohort amounts (students x price, trend-adjusted). In the 2026 backtest this ran ~17% above what the
+  //               team ended up with, and trend-adjusted lines were worse than just repeating the baseline.
+  //  "min"      = OTC cohort amounts, scaled DOWN when their total exceeds the Tableau baseline (never above Tableau). No trend.
+  //  "baseline" = Tableau baseline total, split across the OTC cohorts by their share (OTC used only for timing). No trend.
+  // Booked OTC actuals are never scaled.
+  AMOUNT_BASIS: "min",
   WEIGHTS: { "Captured": 1, "Expected": 1, "Renewal Pending": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+
+  // Backtest: pretend it is the start of the backtest year. OTC orders that were actually booked during that year are
+  // treated as estimates (students x price, no final enrollment) and cohort codes first assigned during that year are
+  // removed, so the engine cannot "see" what happened. Set false to run it on the raw Nov-2026 export.
+  BT_AS_OF: true,
 
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
@@ -566,7 +590,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, flags: [], key: ""
+      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
     return l;
@@ -690,7 +714,15 @@ function FY27_buildForecast(input, cfg) {
         L.status = o.booked ? "Booked" : "Forecast";
         // amount: actual if booked, else (trend-adjusted) students x price, else OTC total
         let amt = o.total;
-        if (!o.booked) {
+        L.otcEstimate = o.total;
+        const basis = cfg.AMOUNT_BASIS || "otc";
+        if (!o.booked && basis !== "otc" && b.baseAmt > 0 && otcEstTotal > 0) {
+          const k = basis === "baseline" ? b.baseAmt / otcEstTotal : Math.min(1, b.baseAmt / otcEstTotal);
+          amt = FY27_round2_(o.total * k);
+          if (k < 0.999 && i === baseIdx) {
+            L.flags.push("Amount held to Tableau baseline: OTC cohorts $" + Math.round(otcEstTotal).toLocaleString() + " vs baseline $" + Math.round(b.baseAmt).toLocaleString());
+          }
+        } else if (!o.booked && basis === "otc") {
           const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
           if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
             const adj = Math.round(o.estStudents * tr.ratio);
@@ -772,6 +804,22 @@ function FY27_buildForecast(input, cfg) {
     }
     // repeated by assumption, no OTC cohort behind it: At Risk (pending contracts keep their own status)
     if (cfg.AT_RISK_BASELINE_ONLY && L.expectation === "Expected" && !b.isBOS && !b.isAdj) L.expectation = cfg.AT_RISK_CATEGORY;
+    // weight by segment (what share of this kind of line did the team keep in the backtest?)
+    if (!b.isBOS && !b.isAdj && (L.expectation === cfg.AT_RISK_CATEGORY || L.expectation === cfg.PENDING_CATEGORY)) {
+      const ended = !!(otcByAcct[b.fullId] && cEnd && FY27_monthDiff_(b.fcMonth, cEnd) > 0);
+      const noContract = !otcByAcct[b.fullId] || !cEnd;
+      const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract };
+      const rules = cfg.AT_RISK_WEIGHT_RULES || [];
+      for (let ri = 0; ri < rules.length; ri++) {
+        const ru = rules[ri];
+        if ((ru.group === undefined || ru.group.toUpperCase() === facts.group) && (ru.rating === undefined || ru.rating === facts.rating) &&
+            (ru.ended === undefined || ru.ended === facts.ended) && (ru.noContract === undefined || ru.noContract === facts.noContract) &&
+            (ru.covers === undefined || ru.covers === facts.covers)) {
+          L.weightOverride = ru.weight; L.segment = ru.name;
+          break;
+        }
+      }
+    }
     applyRatingAndAdj(L, b, false);
     lines.push(L);
     writeback[b.row] = {
@@ -812,10 +860,10 @@ function FY27_buildForecast(input, cfg) {
       cohortNames: o.cohortName, cohortCodes: o.cohortCode,
       bookingType: o.cohortCode ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
-      forecastAmount: o.total,
+      forecastAmount: o.total, otcEstimate: o.total,
       expectation: o.booked ? "Captured" : "Expected"
     });
-    if (!o.booked) {
+    if (!o.booked && (cfg.AMOUNT_BASIS || "otc") === "otc") {
       const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
       if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
         const adj = Math.round(o.estStudents * tr.ratio);
@@ -849,6 +897,13 @@ function FY27_buildForecast(input, cfg) {
   /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
   if (!cfg.TAG_CREDIT) lines.forEach(function (d) { d.credit = ""; d.creditBasis = ""; });
   const detail = lines;
+  const weightOf = function (L) {
+    if (L.expectation === "Not Expected") return 0;
+    if (L.weightOverride !== undefined) return L.weightOverride;
+    const w = cfg.WEIGHTS && cfg.WEIGHTS[L.expectation];
+    return w === undefined ? 1 : w;
+  };
+  detail.forEach(function (d) { d.weight = weightOf(d); d.weightedAmount = FY27_round2_(d.forecastAmount * d.weight); });
   const groups = {};
   const order = [];
   detail.forEach(function (d) {
@@ -886,12 +941,8 @@ function FY27_buildForecast(input, cfg) {
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
-  const weightOf = function (L) {
-    const w = cfg.WEIGHTS && cfg.WEIGHTS[L.expectation];
-    return w === undefined ? 1 : w;
-  };
-  lines.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
-  detail.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
+  // a grouped row keeps the blended weight of its parts; overrides (exclude / amount) rescale it
+  lines.forEach(function (L) { L.weightedAmount = FY27_round2_(L.forecastAmount * (L.expectation === "Not Expected" ? 0 : L.weight)); });
 
   lines.forEach(function (L) { L.forecastQuarter = FY27_quarterOf_(L.forecastMonth); });
   lines.sort(function (a, b) {
@@ -1097,6 +1148,11 @@ function FY27_mergeLines_(parts, makeLine) {
   L.priorBookingType = join("priorBookingType");
   L.nextBookingType = join("nextBookingType");
   L.baselineAmount = sum("baselineAmount");
+  L.otcEstimate = parts.some(function (p) { return p.otcEstimate !== ""; }) ? sum("otcEstimate") : "";
+  L.segment = FY27_uniqJoin_(parts.map(function (p) { return p.segment; }));
+  const wsum = parts.reduce(function (t, p) { return t + (Number(p.weightedAmount) || 0); }, 0);
+  const fsum = parts.reduce(function (t, p) { return t + (Number(p.forecastAmount) || 0); }, 0);
+  L.weight = fsum ? wsum / fsum : first.weight;
   L.valueIfBooked = sum("valueIfBooked");
   L.forecastAmount = sum("forecastAmount");
   L.estStudents = parts.some(function (p) { return p.estStudents !== ""; }) ? sum("estStudents") : "";
@@ -1556,12 +1612,12 @@ function FY27_writeBacktest_(ss, bt) {
   allSh.clear(); allSh.clearFormats();
   const ah = ["Account", "Org ID", "Product Group", "2026 Month", "Baseline $", "Engine $", "Team $", "Engine band", "Team band", "Team category",
     "Team outreach", "Rating", "CSM", "Source", "Cohort total $", "Engine/baseline", "Contract end", "Months to contract end",
-    "Booked same month in 2024", "2024 total (group)", "Engine flags"];
+    "Booked same month in 2024", "2024 total (group)", "Engine flags", "OTC estimate $", "Segment", "Engine weighted $"];
   const ao = [ah];
   bt.all.slice(0, 5000).forEach(function (a) {
     ao.push([a.account, a.org, a.group, FY27_monthToDate_(a.month), a.baseline, a.engine, a.team, a.engineBand, a.teamBand, a.teamCategory,
       a.outreach, a.rating, a.csm, a.source, a.cohortTotal, a.ratio, FY27_monthToDate_(a.contractEnd), a.monthsToEnd,
-      a.booked2024SameMonth, a.total2024, a.flags]);
+      a.booked2024SameMonth, a.total2024, a.flags, a.otcEst, a.segment, a.engineWeighted]);
   });
   allSh.getRange(1, 1, ao.length, ah.length).setValues(ao);
   allSh.setFrozenRows(1);
@@ -1672,8 +1728,33 @@ function FY27_backtest_(input, cfg) {
     const v = FY27_num_(r["Metric value Sales"]);
     h.total += v; h.months[mk.slice(5, 7)] = (h.months[mk.slice(5, 7)] || 0) + v;
   });
+  // As-of view: remove what only became known during the backtest year
+  let otcRows = input.otc;
+  if (cfg.BT_AS_OF) {
+    const codeOf = function (r) { return FY27_str_(FY27_pick_(r, ["Cohort Code (if present, then this is a rebooking)", "Cohort Code", "cohort_code"])); };
+    const bookedStatuses = cfg.OTC_BOOKED_STATUSES || [];
+    const doneBefore = {};
+    input.otc.forEach(function (r) {
+      const act = FY27_monthKey_(r["order_actual_start_date"]);
+      if (act && FY27_yearOf_(act) < year && bookedStatuses.indexOf(FY27_str_(r["order_status"]).toLowerCase()) >= 0 && codeOf(r)) {
+        doneBefore[FY27_id15_(FY27_pick_(r, ["Full ID", "account_business_org_id"])) + "|" + codeOf(r)] = true;
+      }
+    });
+    otcRows = input.otc.map(function (r) {
+      const act = FY27_monthKey_(r["order_actual_start_date"]);
+      if (!act || FY27_yearOf_(act) < year) return r;
+      const o = Object.assign({}, r);
+      o["order_status"] = "Roster"; o["order_actual_start_date"] = ""; o["order_enrollment_final"] = "";
+      const est = FY27_num_(o["Estimated # of Students"]), price = FY27_num_(FY27_pick_(o, ["Price Per Student", "order_price"]));
+      if (est > 0 && price > 0) { o["Estimated or Actual Order Total"] = String(est * price); o["order_total"] = String(est * price); }
+      if (!doneBefore[FY27_id15_(FY27_pick_(o, ["Full ID", "account_business_org_id"])) + "|" + codeOf(r)]) {
+        o["Cohort Code (if present, then this is a rebooking)"] = ""; o["Cohort Code"] = ""; o["cohort_code"] = "";
+      }
+      return o;
+    });
+  }
   const res = FY27_buildForecast({
-    tableau: tableau, otc: input.otc, salesforce: input.salesforce || [], overrides: [], now: new Date(year, 0, 1)
+    tableau: tableau, otc: otcRows, salesforce: input.salesforce || [], overrides: [], now: new Date(year, 0, 1)
   }, bcfg);
 
   // ---- engine side: per baseline line (org | group | 2026 month of the baseline) ----
@@ -1686,6 +1767,8 @@ function FY27_backtest_(input, cfg) {
     e.lines++;
     if (d.cohortCodes) e.hasCode = true;
     if (d.cohortNames || d.cohortCodes) e.cohortTotal += d.forecastAmount;
+    e.otcEst = (e.otcEst || 0) + (Number(d.otcEstimate) || 0);
+    if (d.segment) e.segment = d.segment;
     if (d.contractEnd && d.contractEnd > e.contractEnd) e.contractEnd = d.contractEnd;
     e.baseline += d.baselineAmount; e.forecast += d.forecastAmount; e.weighted = (e.weighted || 0) + d.weightedAmount;
     if (d.cohortNames || d.cohortCodes) e.cohort = true;
@@ -1770,7 +1853,8 @@ function FY27_backtest_(input, cfg) {
       engine: e.forecast, team: t.forecast, engineBand: eb, teamBand: tb, teamCategory: t.catRaw || "", outreach: t.outreach,
       rating: e.rating, csm: t.csm || "", teamProduct: t.product || "",
       source: e.cohort ? (e.hasCode ? "OTC rebooking cohort" : "OTC roster cohort") : (e.bos ? "BOS baseline" : "Baseline only"),
-      cohortTotal: e.cohortTotal, ratio: e.baseline ? e.forecast / e.baseline : "", contractEnd: e.contractEnd,
+      cohortTotal: e.cohortTotal, otcEst: e.otcEst || 0, segment: e.segment || "", engineWeighted: e.weighted || 0,
+      ratio: e.baseline ? e.forecast / e.baseline : "", contractEnd: e.contractEnd,
       monthsToEnd: e.contractEnd ? FY27_monthDiff_(e.contractEnd, mo) : "",
       booked2024SameMonth: hh ? (hh.months[mo.slice(5, 7)] ? "Y" : "N") : "(no 2024 data)",
       total2024: hh ? hh.total : "", flags: e.flags.join(" | ")

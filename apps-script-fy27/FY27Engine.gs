@@ -442,7 +442,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, flags: [], key: ""
+      bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
     return l;
@@ -566,7 +566,15 @@ function FY27_buildForecast(input, cfg) {
         L.status = o.booked ? "Booked" : "Forecast";
         // amount: actual if booked, else (trend-adjusted) students x price, else OTC total
         let amt = o.total;
-        if (!o.booked) {
+        L.otcEstimate = o.total;
+        const basis = cfg.AMOUNT_BASIS || "otc";
+        if (!o.booked && basis !== "otc" && b.baseAmt > 0 && otcEstTotal > 0) {
+          const k = basis === "baseline" ? b.baseAmt / otcEstTotal : Math.min(1, b.baseAmt / otcEstTotal);
+          amt = FY27_round2_(o.total * k);
+          if (k < 0.999 && i === baseIdx) {
+            L.flags.push("Amount held to Tableau baseline: OTC cohorts $" + Math.round(otcEstTotal).toLocaleString() + " vs baseline $" + Math.round(b.baseAmt).toLocaleString());
+          }
+        } else if (!o.booked && basis === "otc") {
           const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
           if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
             const adj = Math.round(o.estStudents * tr.ratio);
@@ -648,6 +656,22 @@ function FY27_buildForecast(input, cfg) {
     }
     // repeated by assumption, no OTC cohort behind it: At Risk (pending contracts keep their own status)
     if (cfg.AT_RISK_BASELINE_ONLY && L.expectation === "Expected" && !b.isBOS && !b.isAdj) L.expectation = cfg.AT_RISK_CATEGORY;
+    // weight by segment (what share of this kind of line did the team keep in the backtest?)
+    if (!b.isBOS && !b.isAdj && (L.expectation === cfg.AT_RISK_CATEGORY || L.expectation === cfg.PENDING_CATEGORY)) {
+      const ended = !!(otcByAcct[b.fullId] && cEnd && FY27_monthDiff_(b.fcMonth, cEnd) > 0);
+      const noContract = !otcByAcct[b.fullId] || !cEnd;
+      const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract };
+      const rules = cfg.AT_RISK_WEIGHT_RULES || [];
+      for (let ri = 0; ri < rules.length; ri++) {
+        const ru = rules[ri];
+        if ((ru.group === undefined || ru.group.toUpperCase() === facts.group) && (ru.rating === undefined || ru.rating === facts.rating) &&
+            (ru.ended === undefined || ru.ended === facts.ended) && (ru.noContract === undefined || ru.noContract === facts.noContract) &&
+            (ru.covers === undefined || ru.covers === facts.covers)) {
+          L.weightOverride = ru.weight; L.segment = ru.name;
+          break;
+        }
+      }
+    }
     applyRatingAndAdj(L, b, false);
     lines.push(L);
     writeback[b.row] = {
@@ -688,10 +712,10 @@ function FY27_buildForecast(input, cfg) {
       cohortNames: o.cohortName, cohortCodes: o.cohortCode,
       bookingType: o.cohortCode ? "Rebooking" : "Roster Chasing",
       status: o.booked ? "Booked" : "Forecast",
-      forecastAmount: o.total,
+      forecastAmount: o.total, otcEstimate: o.total,
       expectation: o.booked ? "Captured" : "Expected"
     });
-    if (!o.booked) {
+    if (!o.booked && (cfg.AMOUNT_BASIS || "otc") === "otc") {
       const tr = history.ratio[o.fullId + "|" + o.group + "|" + o.family];
       if (cfg.USE_TREND && tr && Math.abs(tr.ratio - 1) >= cfg.TREND_MIN_DELTA && o.estStudents > 0 && o.price > 0) {
         const adj = Math.round(o.estStudents * tr.ratio);
@@ -725,6 +749,13 @@ function FY27_buildForecast(input, cfg) {
   /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
   if (!cfg.TAG_CREDIT) lines.forEach(function (d) { d.credit = ""; d.creditBasis = ""; });
   const detail = lines;
+  const weightOf = function (L) {
+    if (L.expectation === "Not Expected") return 0;
+    if (L.weightOverride !== undefined) return L.weightOverride;
+    const w = cfg.WEIGHTS && cfg.WEIGHTS[L.expectation];
+    return w === undefined ? 1 : w;
+  };
+  detail.forEach(function (d) { d.weight = weightOf(d); d.weightedAmount = FY27_round2_(d.forecastAmount * d.weight); });
   const groups = {};
   const order = [];
   detail.forEach(function (d) {
@@ -762,12 +793,8 @@ function FY27_buildForecast(input, cfg) {
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
-  const weightOf = function (L) {
-    const w = cfg.WEIGHTS && cfg.WEIGHTS[L.expectation];
-    return w === undefined ? 1 : w;
-  };
-  lines.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
-  detail.forEach(function (L) { L.weight = weightOf(L); L.weightedAmount = FY27_round2_(L.forecastAmount * L.weight); });
+  // a grouped row keeps the blended weight of its parts; overrides (exclude / amount) rescale it
+  lines.forEach(function (L) { L.weightedAmount = FY27_round2_(L.forecastAmount * (L.expectation === "Not Expected" ? 0 : L.weight)); });
 
   lines.forEach(function (L) { L.forecastQuarter = FY27_quarterOf_(L.forecastMonth); });
   lines.sort(function (a, b) {
@@ -973,6 +1000,11 @@ function FY27_mergeLines_(parts, makeLine) {
   L.priorBookingType = join("priorBookingType");
   L.nextBookingType = join("nextBookingType");
   L.baselineAmount = sum("baselineAmount");
+  L.otcEstimate = parts.some(function (p) { return p.otcEstimate !== ""; }) ? sum("otcEstimate") : "";
+  L.segment = FY27_uniqJoin_(parts.map(function (p) { return p.segment; }));
+  const wsum = parts.reduce(function (t, p) { return t + (Number(p.weightedAmount) || 0); }, 0);
+  const fsum = parts.reduce(function (t, p) { return t + (Number(p.forecastAmount) || 0); }, 0);
+  L.weight = fsum ? wsum / fsum : first.weight;
   L.valueIfBooked = sum("valueIfBooked");
   L.forecastAmount = sum("forecastAmount");
   L.estStudents = parts.some(function (p) { return p.estStudents !== ""; }) ? sum("estStudents") : "";

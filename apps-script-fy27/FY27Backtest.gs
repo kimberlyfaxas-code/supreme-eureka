@@ -96,8 +96,33 @@ function FY27_backtest_(input, cfg) {
     const v = FY27_num_(r["Metric value Sales"]);
     h.total += v; h.months[mk.slice(5, 7)] = (h.months[mk.slice(5, 7)] || 0) + v;
   });
+  // As-of view: remove what only became known during the backtest year
+  let otcRows = input.otc;
+  if (cfg.BT_AS_OF) {
+    const codeOf = function (r) { return FY27_str_(FY27_pick_(r, ["Cohort Code (if present, then this is a rebooking)", "Cohort Code", "cohort_code"])); };
+    const bookedStatuses = cfg.OTC_BOOKED_STATUSES || [];
+    const doneBefore = {};
+    input.otc.forEach(function (r) {
+      const act = FY27_monthKey_(r["order_actual_start_date"]);
+      if (act && FY27_yearOf_(act) < year && bookedStatuses.indexOf(FY27_str_(r["order_status"]).toLowerCase()) >= 0 && codeOf(r)) {
+        doneBefore[FY27_id15_(FY27_pick_(r, ["Full ID", "account_business_org_id"])) + "|" + codeOf(r)] = true;
+      }
+    });
+    otcRows = input.otc.map(function (r) {
+      const act = FY27_monthKey_(r["order_actual_start_date"]);
+      if (!act || FY27_yearOf_(act) < year) return r;
+      const o = Object.assign({}, r);
+      o["order_status"] = "Roster"; o["order_actual_start_date"] = ""; o["order_enrollment_final"] = "";
+      const est = FY27_num_(o["Estimated # of Students"]), price = FY27_num_(FY27_pick_(o, ["Price Per Student", "order_price"]));
+      if (est > 0 && price > 0) { o["Estimated or Actual Order Total"] = String(est * price); o["order_total"] = String(est * price); }
+      if (!doneBefore[FY27_id15_(FY27_pick_(o, ["Full ID", "account_business_org_id"])) + "|" + codeOf(r)]) {
+        o["Cohort Code (if present, then this is a rebooking)"] = ""; o["Cohort Code"] = ""; o["cohort_code"] = "";
+      }
+      return o;
+    });
+  }
   const res = FY27_buildForecast({
-    tableau: tableau, otc: input.otc, salesforce: input.salesforce || [], overrides: [], now: new Date(year, 0, 1)
+    tableau: tableau, otc: otcRows, salesforce: input.salesforce || [], overrides: [], now: new Date(year, 0, 1)
   }, bcfg);
 
   // ---- engine side: per baseline line (org | group | 2026 month of the baseline) ----
@@ -110,6 +135,8 @@ function FY27_backtest_(input, cfg) {
     e.lines++;
     if (d.cohortCodes) e.hasCode = true;
     if (d.cohortNames || d.cohortCodes) e.cohortTotal += d.forecastAmount;
+    e.otcEst = (e.otcEst || 0) + (Number(d.otcEstimate) || 0);
+    if (d.segment) e.segment = d.segment;
     if (d.contractEnd && d.contractEnd > e.contractEnd) e.contractEnd = d.contractEnd;
     e.baseline += d.baselineAmount; e.forecast += d.forecastAmount; e.weighted = (e.weighted || 0) + d.weightedAmount;
     if (d.cohortNames || d.cohortCodes) e.cohort = true;
@@ -194,7 +221,8 @@ function FY27_backtest_(input, cfg) {
       engine: e.forecast, team: t.forecast, engineBand: eb, teamBand: tb, teamCategory: t.catRaw || "", outreach: t.outreach,
       rating: e.rating, csm: t.csm || "", teamProduct: t.product || "",
       source: e.cohort ? (e.hasCode ? "OTC rebooking cohort" : "OTC roster cohort") : (e.bos ? "BOS baseline" : "Baseline only"),
-      cohortTotal: e.cohortTotal, ratio: e.baseline ? e.forecast / e.baseline : "", contractEnd: e.contractEnd,
+      cohortTotal: e.cohortTotal, otcEst: e.otcEst || 0, segment: e.segment || "", engineWeighted: e.weighted || 0,
+      ratio: e.baseline ? e.forecast / e.baseline : "", contractEnd: e.contractEnd,
       monthsToEnd: e.contractEnd ? FY27_monthDiff_(e.contractEnd, mo) : "",
       booked2024SameMonth: hh ? (hh.months[mo.slice(5, 7)] ? "Y" : "N") : "(no 2024 data)",
       total2024: hh ? hh.total : "", flags: e.flags.join(" | ")
