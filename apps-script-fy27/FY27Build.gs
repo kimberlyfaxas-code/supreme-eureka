@@ -14,12 +14,17 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("FY27 Forecast")
-    .addItem("Build / refresh forecast", "FY27_run")
-    .addItem("Add override for selected Forecast row", "FY27_addOverrideForSelection")
-    .addItem("Backtest against 2026 forecast", "FY27_runBacktest")
+    .addItem("Build / refresh forecast (also applies CSM changes)", "FY27_run")
     .addSeparator()
-    .addItem("Set up Overrides tab", "FY27_ensureOverridesSheet_")
+    .addItem("Show the Read Me", "FY27_showReadMe")
+    .addItem("Backtest against 2026 forecast", "FY27_runBacktest")
     .addToUi();
+}
+
+function FY27_showReadMe() {
+  const ss = SpreadsheetApp.getActive();
+  FY27_ensureReadMe_();
+  ss.setActiveSheet(ss.getSheetByName(FY27_CFG.SHEETS.README));
 }
 
 const FY27_FORECAST_COLUMNS = [
@@ -100,13 +105,15 @@ function FY27_run() {
     const otc = FY27_gridToRows_(otcSheet.getDataRange().getValues(), { skipRawHeaderRow: "account_name" });
     const sf = FY27_gridToRows_(sfSheet.getDataRange().getValues());
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
+    const manualSheet = FY27_ensureManualSheet_();
+    const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -129,6 +136,10 @@ function FY27_run() {
     FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
     FY27_writeForecast_(ss, result.detail, cfg.SHEETS.DETAIL);
     FY27_writeReview_(ss, result, retention);
+    FY27_writeCsmSheet_(ss, result.lines, ov.rows, result.stats.overrideStatus);
+    FY27_writeOverrideStatus_(ovSheet, result.stats.overrideStatus);
+    FY27_writeManualStatus_(manualSheet, result.stats.manualResults);
+    FY27_ensureReadMe_();
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
     ss.toast(
@@ -212,7 +223,12 @@ function FY27_writeReview_(ss, result, retention) {
   add(["Forecast rows", s.lines, "OTC cohorts in " + FY27_CFG.FORECAST_YEAR, s.otcTargetRows, "...matched to baseline", s.otcMatched]);
   r = add(["Total forecast $ (full value)", s.total, "Weighted total $ (At Risk etc. weighted)", s.totalWeighted]);
   fmt.push([r, 2, "$#,##0"], [r, 4, "$#,##0"]);
-  add(["Overrides applied", s.overridesApplied, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
+  const ovSt = s.overrideStatus || {};
+  const ovNotFound = Object.keys(ovSt).filter(function (k) { return ovSt[k] === "Not found"; }).length;
+  const manRes = s.manualResults || [];
+  const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
+  add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
+  add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
   r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
@@ -322,25 +338,36 @@ function FY27_writeBackTableau_(sh, tableau, writeback) {
 
 /* ---------------- overrides ---------------- */
 
+const FY27_OVERRIDE_HEADER = ["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month",
+  "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment", "Updated By", "Updated At", "Status"];
+
+/**
+ * The Overrides tab is the store behind the CSM tab's yellow cells (one row per line the CSM changed). CSMs do not need to open it.
+ * Existing rows are never discarded: an older 10-column layout just gets the three new columns.
+ */
 function FY27_ensureOverridesSheet_() {
   const ss = SpreadsheetApp.getActive();
   const name = FY27_CFG.SHEETS.OVERRIDES;
-  const header = ["Line Key", "Account", "Product", "Forecast Month", "Override Amount", "Override Month",
-    "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"];
+  const header = FY27_OVERRIDE_HEADER;
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
   const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
-  if (!header.every(function (h, i) { return cur[i] === h; })) {
-    // older layout had an "Exclude" checkbox in column G and Comment in H: carry rows over (Exclude -> Not Expected)
-    let carried = [];
-    if (sh.getLastRow() > 1 && cur[6] === "Exclude") {
-      carried = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function (r) { return r[0] !== ""; }).map(function (r) {
-        return [r[0], r[1], r[2], r[3], r[4], r[5], (r[6] === true || String(r[6]).toLowerCase() === "true") ? "Not Expected" : "", "", "", r[7]];
-      });
+  const matches = function (n) { return header.slice(0, n).every(function (h, i) { return cur[i] === h; }); };
+  if (!matches(header.length)) {
+    if (matches(10)) {
+      sh.getRange(1, 11, 1, 3).setValues([header.slice(10)]);                     // 10-column layout: just add the new columns
+    } else {
+      // oldest layout had an "Exclude" checkbox in column G and Comment in H: carry rows over (Exclude -> Not Expected)
+      let carried = [];
+      if (sh.getLastRow() > 1 && cur[6] === "Exclude") {
+        carried = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().filter(function (r) { return r[0] !== ""; }).map(function (r) {
+          return [r[0], r[1], r[2], r[3], r[4], r[5], (r[6] === true || String(r[6]).toLowerCase() === "true") ? "Not Expected" : "", "", "", r[7], "", "", ""];
+        });
+      }
+      sh.clear();
+      sh.getRange(1, 1, 1, header.length).setValues([header]);
+      if (carried.length) sh.getRange(2, 1, carried.length, header.length).setValues(carried);
     }
-    sh.clear();
-    sh.getRange(1, 1, 1, header.length).setValues([header]);
-    if (carried.length) sh.getRange(2, 1, carried.length, header.length).setValues(carried);
   }
   sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#E7EDF6");
   sh.setFrozenRows(1);
@@ -351,25 +378,169 @@ function FY27_ensureOverridesSheet_() {
   return sh;
 }
 
-/** Select any cell in a Forecast row, run this, then fill Override Amount / Month / Exclude on the Overrides tab. */
-function FY27_addOverrideForSelection() {
+/** After a build: tell each stored override whether it was applied or could not be matched to a line any more. */
+function FY27_writeOverrideStatus_(sh, status) {
+  const last = sh.getLastRow();
+  if (last < 2) return;
+  const keys = sh.getRange(2, 1, last - 1, 1).getValues();
+  const out = keys.map(function (r) {
+    const k = FY27_str_(r[0]);
+    if (!k) return [""];
+    const st = status[k];
+    return [st === "Applied" ? "Applied" : st === "Not found" ? "NOT FOUND - the line changed in a refresh; re-enter it on the CSM tab" : "(no change set)"];
+  });
+  sh.getRange(2, 13, out.length, 1).setValues(out);
+}
+
+/* ---------------- Manual Add-Ons tab ---------------- */
+
+const FY27_MANUAL_HEADER = ["Full ID", "Student Org ID", "Account Name", "Product Group", "Product Name", "Forecast Month", "Amount",
+  "Forecast Category", "Not Expected Reason", "Roster Stage", "Booking Type", "CSM", "Comment", "Status"];
+
+/**
+ * Lines the data does not know about: a new sale, a one-off, a placeholder. Fill Full ID (or Student Org ID), Product Group, Forecast Month and Amount;
+ * the Status column says whether the line was added. Rows are never cleared by a refresh.
+ */
+function FY27_ensureManualSheet_() {
   const ss = SpreadsheetApp.getActive();
-  const fc = ss.getSheetByName(FY27_CFG.SHEETS.FORECAST);
-  if (!fc || ss.getActiveSheet().getName() !== fc.getName()) {
-    SpreadsheetApp.getUi().alert("Select a row on the '" + FY27_CFG.SHEETS.FORECAST + "' tab first.");
-    return;
-  }
-  const row = ss.getActiveRange().getRow();
-  if (row < 2) return;
-  const hdr = fc.getRange(1, 1, 1, fc.getLastColumn()).getValues()[0];
-  const vals = fc.getRange(row, 1, 1, hdr.length).getValues()[0];
-  const get = function (h) { return vals[hdr.indexOf(h)]; };
+  const header = FY27_MANUAL_HEADER;
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.MANUAL);
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.MANUAL);
+  const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
+  if (!header.every(function (h, i) { return cur[i] === h; })) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#FFF2CC");
+  sh.setFrozenRows(1);
+  const dd = function (col, list) {
+    sh.getRange(2, col, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(list, true).setAllowInvalid(false).build());
+  };
+  dd(4, FY27_CFG.PRODUCT_GROUPS); dd(8, FY27_CFG.CATEGORIES); dd(9, FY27_CFG.NOT_EXPECTED_REASONS); dd(10, FY27_CFG.ROSTER_STAGES); dd(11, FY27_CFG.BOOKING_TYPES);
+  sh.getRange(2, 6, 500, 1).setNumberFormat("mmm-yy");
+  sh.getRange(2, 7, 500, 1).setNumberFormat("$#,##0");
+  sh.getRange(1, 1).setNote("Full ID or Student Org ID: copy it from the CSM Forecast tab. Forecast Month must be in " + FY27_CFG.FORECAST_YEAR + ". Leave Forecast Category blank for Expected.");
+  sh.getRange(1, 14).setNote("Filled in by the refresh: Added, or NOT ADDED with the reason.");
+  return sh;
+}
+
+function FY27_writeManualStatus_(sh, results) {
+  (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Read Me tab ---------------- */
+
+function FY27_ensureReadMe_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.README);
+  const fresh = !sh;
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.README);
+  sh.clear();
+  const lines = FY27_readmeLines_(FY27_CFG);
+  sh.getRange(1, 1, lines.length, 1).setValues(lines);
+  sh.setColumnWidth(1, 900);
+  sh.getRange(1, 1, lines.length, 1).setWrap(true);
+  lines.forEach(function (l, i) {
+    if (l[0] && l[0] === l[0].toUpperCase() && /[A-Z]/.test(l[0])) sh.getRange(i + 1, 1).setFontWeight("bold").setBackground("#E7EDF6");
+  });
+  sh.getRange(1, 1).setFontSize(14);
+  if (fresh) { ss.setActiveSheet(sh); ss.moveActiveSheet(1); }
+  return sh;
+}
+
+/* ---------------- CSM Forecast tab ---------------- */
+
+/** The tab CSMs work in: filter to your accounts, change the yellow cells. Everything else is calculated and protected with a warning. */
+function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
+  const cfg = FY27_CFG;
+  const sh = ss.getSheetByName(cfg.SHEETS.CSM) || ss.insertSheet(cfg.SHEETS.CSM);
+  const existingFilter = sh.getFilter();
+  if (existingFilter) existingFilter.remove();
+  sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function (p) { if (String(p.getDescription()).indexOf("FY27") === 0) p.remove(); });
+  sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
+  const headers = FY27_csmHeaders_();
+  const rows = FY27_csmRows_(lines, overrideRows, status);
+  const nCalc = FY27_CSM_COLUMNS.length, nIn = FY27_CSM_INPUTS.length;
+  const colOf = function (h) { return headers.indexOf(h) + 1; };
+  const out = [headers];
+  rows.forEach(function (r) {
+    const x = r.slice();
+    [colOf("Forecast Month"), colOf("SET: Month")].forEach(function (c) { x[c - 1] = x[c - 1] ? FY27_monthToDate_(FY27_monthKey_(x[c - 1])) : ""; });
+    out.push(x);
+  });
+  sh.getRange(1, 1, out.length, headers.length).setValues(out);
+  sh.setFrozenRows(1); sh.setFrozenColumns(2);
+  // header styling: calculated = blue-grey, inputs = yellow
+  sh.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#E7EDF6").setWrap(true);
+  sh.getRange(1, nCalc + 1, 1, nIn).setBackground("#FFD966");
+  const n = Math.max(rows.length, 1);
+  sh.getRange(2, nCalc + 1, n, nIn).setBackground("#FFF2CC");                       // the cells a CSM edits
+  sh.getRange(2, colOf("Forecast Month"), n, 1).setNumberFormat("mmm-yy");
+  sh.getRange(2, colOf("SET: Month"), n, 1).setNumberFormat("mmm-yy");
+  [colOf("Baseline $"), colOf("Forecast $ (full value)"), colOf("Weighted $"), colOf("SET: Amount")].forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat("$#,##0"); });
+  const widths = { "CSM": 130, "Account Name": 260, "Full ID": 150, "Student Org ID": 150, "Rating": 60, "Product Group": 130, "Product Name": 200, "Forecast Month": 80,
+    "Baseline $": 90, "Forecast $ (full value)": 100, "Weighted $": 90, "Forecast Category": 120, "Not Expected Reason": 140, "Roster Stage": 110, "Timing vs Baseline": 80,
+    "Source": 100, "Why (flags)": 420, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
+  headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
+  // dropdowns on the inputs
+  const dd = function (h, list) {
+    sh.getRange(2, colOf(h), n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(list, true).setAllowInvalid(false).build());
+  };
+  dd("SET: Category", cfg.CATEGORIES); dd("SET: Reason", cfg.NOT_EXPECTED_REASONS); dd("SET: Stage", cfg.ROSTER_STAGES);
+  // colour the category so risk is visible at a glance
+  const catRange = sh.getRange(2, colOf("Forecast Category"), n, 1);
+  const rule = function (text, bg) { return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(text).setBackground(bg).setRanges([catRange]).build(); };
+  sh.setConditionalFormatRules([rule("Captured", "#D9EAD3"), rule("At Risk", "#FFE599"), rule("Pending Contract", "#CFE2F3"), rule("Not Expected", "#E0E0E0")]);
+  // filter on the header row so a CSM can pick their own name
+  sh.getRange(1, 1, out.length, headers.length).createFilter();
+  // calculated columns: warn before editing
+  const warn = function (rng, desc) { const p = rng.protect(); p.setDescription(desc); p.setWarningOnly(true); };
+  warn(sh.getRange(2, 1, n, nCalc), "FY27 calculated columns");
+  warn(sh.getRange(2, nCalc + nIn + 1, n, 2), "FY27 system columns");
+  sh.hideColumns(colOf("Line Key"));
+  sh.getRange(1, colOf("SET: Category")).setNote("Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh.");
+  sh.getRange(1, colOf("SET: Amount")).setNote("Only if the amount is wrong. This replaces the full-value amount.");
+  sh.getRange(1, colOf("SET: Month")).setNote("Only if it will book in a different month than shown.");
+  return sh;
+}
+
+/**
+ * Runs when anyone edits the sheet (a simple trigger). When a CSM changes a yellow cell on the CSM tab, the change is written to the Overrides tab
+ * straight away, so it survives refreshes and rebuilds.
+ */
+function onEdit(e) {
+  try { FY27_onEdit_(e); }
+  catch (err) { SpreadsheetApp.getActive().toast("Could not save that change: " + err.message, "FY27 Forecast", 8); }
+}
+
+function FY27_onEdit_(e) {
+  const cfg = FY27_CFG;
+  if (!e || !e.range) return;
+  const sh = e.range.getSheet();
+  if (sh.getName() !== cfg.SHEETS.CSM) return;
+  const lastCol = sh.getLastColumn();
+  const hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  const inCols = FY27_CSM_INPUTS.map(function (h) { return hdr.indexOf(h) + 1; });
+  const c1 = e.range.getColumn(), c2 = e.range.getLastColumn();
+  if (!inCols.some(function (c) { return c >= c1 && c <= c2; })) return;       // not an input cell
+  const r1 = Math.max(2, e.range.getRow()), r2 = e.range.getLastRow();
+  if (r2 < r1) return;
+  const rowsVals = sh.getRange(r1, 1, r2 - r1 + 1, lastCol).getValues();
   const ov = FY27_ensureOverridesSheet_();
-  const last = Math.max(ov.getLastRow(), 1) + 1;
-  ov.getRange(last, 1, 1, 4).setValues([[get("Line Key"), get("Account Name"), get("Product Group") + " / " + get("Product Name"), get("Forecast Month")]]);
-  ov.getRange(last, 4).setNumberFormat("mmm-yy");
-  ss.setActiveSheet(ov);
-  ov.setActiveRange(ov.getRange(last, 5));
+  const oh = FY27_OVERRIDE_HEADER;
+  const lastOv = ov.getLastRow();
+  let store = lastOv > 1 ? ov.getRange(2, 1, lastOv - 1, oh.length).getValues() : [];
+  let who = ""; try { who = Session.getActiveUser().getEmail(); } catch (x) { who = ""; }
+  const now = new Date();
+  const stamp = Utilities.formatDate(now, Session.getScriptTimeZone(), "MMM d h:mm a");
+  const savedCol = hdr.indexOf("Saved?") + 1;
+  rowsVals.forEach(function (row, i) {
+    const rec = FY27_overrideRecFromCsmRow_(hdr, row);
+    if (!rec["Line Key"]) return;
+    rec["Updated By"] = who; rec["Updated At"] = now; rec["Status"] = "Saved - applies at the next refresh";
+    const res = FY27_upsertOverride_(oh, store, rec);
+    store = res.values;
+    sh.getRange(r1 + i, savedCol).setValue(res.action === "removed" ? "Cleared " + stamp : "Saved " + stamp + " (applies at next refresh)");
+  });
+  if (lastOv > 1) ov.getRange(2, 1, lastOv - 1, oh.length).clearContent();
+  if (store.length) ov.getRange(2, 1, store.length, oh.length).setValues(store);
 }
 
 /* ---------------- backtest vs the 2026 forecast ---------------- */

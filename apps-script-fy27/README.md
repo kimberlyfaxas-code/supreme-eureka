@@ -92,7 +92,7 @@ Three short dropdowns replace the 2026 Outreach Status x Forecast Category grid:
 - **Not Expected Reason** (5, only for Not Expected): Lost, No Revenue This Term, Non-Recurring, Adjustment, Data Error.
 - **Roster Stage** (5): Not started, In progress, Received - held, Submitted, Not needed.
 Early / On time / Late is calculated (`Timing vs Baseline`), not picked. The engine pre-fills all of it; CSMs only change what is wrong,
-on the **Forecast Overrides** tab (dropdowns). The weighted forecast follows the category.
+in the yellow cells of the **CSM Forecast** tab (dropdowns). The weighted forecast follows the category.
 
 ## Cohort sizing for cohorts with no baseline (`ENROLLMENT_BASIS` = "actual")
 OTC estimates are what the rep expected at signing; actual enrollment moves through the term. A cohort with no Tableau baseline line is sized
@@ -113,9 +113,19 @@ net weighted (adds new/additional OTC cohorts), and confirmed-only (Captured + E
 (tab name starting `Flex Hierarchy Crosstab`: account, product group, product, booking type, CSM, month, sales incl. negative adjustments): gross $ (renewals only),
 net $ and logo retention per year pair (the current year is compared on the same months of both years), plus the 2026 team forecast as recorded.
 
-## Overrides (survive refreshes)
-Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /
-Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line Key`.
+## CSM Forecast, overrides and manual add-ons (survive refreshes)
+- **CSM Forecast** is the one tab CSMs work in: filter the CSM column, review the row, and change only the **yellow** cells
+  (`SET: Category / Reason / Stage / Amount / Month`, `Comment`). Calculated columns have a warning-only protection.
+- The change is **saved the moment it is typed** (`onEdit` writes it to the **Overrides** tab; `Saved?` shows the time) and
+  **applied at the next Build / refresh**. Clear all yellow cells on a row to undo it. The Overrides tab is just the store.
+- Override keys are `Full ID | Org ID | product group | month | status | #n`, so a data refresh does not orphan a change unless the
+  line itself disappears; those show `Not applied` on the CSM tab and `NOT FOUND` on the Overrides tab (also counted on the Review tab).
+- **Manual Add-Ons**: one row per line the data does not know about (new sale, one-off). Needs Full ID or Student Org ID, Product Group,
+  Forecast Month (in the forecast year) and Amount. The `Status` column says `Added` / `NOT ADDED: reason` after each refresh.
+  Manual lines are never merged with data lines and appear with Source `Manual Add`.
+- **Read Me** is regenerated from the config on every build (weights shown there come from `WEIGHTS`).
+- The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
+  place (rows kept, `Exclude` -> Not Expected).
 
 ## Backtest against the 2026 forecast
 **FY27 Forecast > Backtest against 2026 forecast** runs the same engine on the 2025 baseline (`2026 Beginning Forecast Reference`)

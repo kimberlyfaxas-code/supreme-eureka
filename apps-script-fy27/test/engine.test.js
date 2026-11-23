@@ -894,4 +894,55 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
     { "Forecast Line Type": "Adjustment", "Forecast Source": "Manual Add", "Baseline Amount": "0", "Forecast Amount": "-50" }]);
   assert.strictEqual(tr.pct, 0.8); assert.strictEqual(tr.pctWithManual, 0.95); assert.strictEqual(tr.manualAdds, 150);
 }
+// 53. Manual add-ons: validated, attributes looked up by Full ID / Student Org ID, kept as their own rows, weighted by category
+{
+  const F = "0014u000025MANUAL1";
+  const t = [tab({ "FULL ID": F, "Billing ID": "001MANUALORG", "Account Name": "Manual U", "Client Success Manager": "Pat CSM", "Rating": "Green" })];
+  const mrow = (o, n) => Object.assign({ "Full ID": F, "Product Group": "NURSING COURSE", "Product Name": "Step Up", "Forecast Month": "3/1/2027", "Amount": "$5,000", "Forecast Category": "", "Comment": "new sale", __row: n }, o);
+  const run2 = (manual) => E.FY27_buildForecast({ tableau: t, otc: [], salesforce: [], overrides: [], adjustments: [], manual: manual, now: new Date(2026, 10, 18) }, CFG);
+  const r = run2([mrow({}, 2), mrow({ "Full ID": "", "Student Org ID": "001MANUALORG", "Forecast Month": "4/1/2027", "Forecast Category": "At Risk" }, 3),
+    mrow({ "Amount": "" }, 4), mrow({ "Forecast Month": "3/1/2026" }, 5), mrow({ "Product Group": "" }, 6), mrow({ "Full ID": "0014u000025UNKNOWNID", "Forecast Month": "5/1/2027" }, 7),
+    { __row: 8 }]);
+  const man = r.lines.filter((l) => l.forecastSource === "Manual Add On");
+  assert.strictEqual(man.length, 3);                                         // rows 2, 3 and 7
+  const m1 = man.find((l) => l.forecastMonth === "2027-03");
+  assert.strictEqual(m1.forecastAmount, 5000); assert.strictEqual(m1.expectation, "Expected"); assert.strictEqual(m1.weightedAmount, 5000);
+  assert.strictEqual(m1.accountName, "Manual U"); assert.strictEqual(m1.csm, "Pat CSM"); assert.strictEqual(m1.stage, "Not started");
+  assert.ok(m1.flags.some((f) => /Manual add-on: new sale/.test(f)));
+  const m2 = man.find((l) => l.forecastMonth === "2027-04");
+  assert.strictEqual(m2.expectation, "At Risk"); assert.strictEqual(m2.weightedAmount, 2750);   // found through the Student Org ID, At Risk 55%
+  assert.strictEqual(m2.accountName, "Manual U");
+  const status = (n) => r.stats.manualResults.find((x) => x.row === n).status;
+  assert.strictEqual(status(2), "Added");
+  assert.ok(/NOT ADDED: Amount missing/.test(status(4)));
+  assert.ok(/NOT ADDED: Forecast Month must be in 2027/.test(status(5)));
+  assert.ok(/NOT ADDED: Product Group missing/.test(status(6)));
+  assert.ok(/ID not found/.test(status(7)));
+  assert.strictEqual(r.stats.manualResults.length, 6);                       // the blank row 8 is ignored
+  assert.strictEqual(r.stats.manualAdded, 3);
+  // a manual line is a separate row from a baseline line in the same account / group / month, and counts in the totals
+  const both = run2([mrow({ "Forecast Month": "2/1/2027" }, 2)]);
+  assert.strictEqual(both.lines.filter((l) => l.forecastMonth === "2027-02").length, 2);
+  assert.strictEqual(Math.round(both.stats.total), 6000);
+}
+// 54. Override keys survive a data refresh that changes the line's category; override status says Applied / Not found
+{
+  const F = "0014u000025KEYSTAB";
+  const t = [tab({ "FULL ID": F })];
+  const at = (o) => E.FY27_buildForecast({ tableau: t, otc: o, salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 18) }, CFG);
+  const first = at([]);                                    // baseline-only: no OTC contract -> Pending Contract
+  const key = first.lines[0].key;
+  const second = at([otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })]);
+  assert.notStrictEqual(first.lines[0].expectation, second.lines[0].expectation);        // the category changed...
+  assert.strictEqual(second.lines[0].key, key);                                            // ...the key did not
+  const ov = [{ "Line Key": key, "Forecast Category": "Not Expected", "Not Expected Reason": "Lost" }, { "Line Key": "0014u000025GONE|x|y|2027-09|Forecast|1", "Override Amount": "5" },
+    { "Line Key": "0014u000025EMPTY|x|y|2027-09|Forecast|1" }];
+  const r = E.FY27_buildForecast({ tableau: t, otc: [], salesforce: [], overrides: ov, adjustments: [], now: new Date(2026, 10, 18) }, CFG);
+  assert.strictEqual(r.stats.overrideStatus[key], "Applied");
+  assert.strictEqual(r.stats.overrideStatus["0014u000025GONE|x|y|2027-09|Forecast|1"], "Not found");
+  assert.strictEqual(r.stats.overrideStatus["0014u000025EMPTY|x|y|2027-09|Forecast|1"], undefined);   // nothing set: no status
+  // a comment on its own is shown but is not counted as an override
+  const c = E.FY27_buildForecast({ tableau: t, otc: [], salesforce: [], overrides: [{ "Line Key": key, "Comment": "called CSM" }], adjustments: [], now: new Date(2026, 10, 18) }, CFG);
+  assert.ok(c.lines[0].flags.some((f) => /Note: called CSM/.test(f))); assert.strictEqual(c.stats.overridesApplied, 0);
+}
 console.log("all engine tests passed");

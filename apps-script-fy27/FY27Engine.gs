@@ -487,7 +487,7 @@ function FY27_buildForecast(input, cfg) {
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
       baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
-      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "",
+      productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "", isManual: false, manualRow: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
     };
     for (const k in partial) l[k] = partial[k];
@@ -872,6 +872,63 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
   });
 
+  /* ---- 2b. Manual add-ons (the "Manual Add-Ons" tab): lines the data does not know about ---- */
+  const manualResults = [];
+  const firstBaseByFull = {}, firstBaseByBilling = {}, sfByOrg = {};
+  base.forEach(function (b) {
+    if (b.fullId && !firstBaseByFull[b.fullId]) firstBaseByFull[b.fullId] = b;
+    if (b.billingId && !firstBaseByBilling[b.billingId]) firstBaseByBilling[b.billingId] = b;
+  });
+  (input.salesforce || []).forEach(function (r) { const o2 = FY27_str_(r["Student Org Id"]); if (o2 && !sfByOrg[o2]) sfByOrg[o2] = r; });
+  (input.manual || []).forEach(function (r) {
+    const idRaw = FY27_str_(FY27_pick_(r, ["Full ID", "FULL ID"])) || FY27_str_(r["Student Org ID"]);
+    const month = FY27_monthKey_(r["Forecast Month"]);
+    const amtRaw = FY27_str_(r["Amount"]);
+    const group = FY27_str_(r["Product Group"]);
+    if (!idRaw && !FY27_str_(r["Account Name"]) && !month && amtRaw === "" && !group) return;       // blank row
+    const problems = [];
+    if (!idRaw && !FY27_str_(r["Account Name"])) problems.push("Full ID, Student Org ID or Account Name needed");
+    if (!month) problems.push("Forecast Month missing");
+    else if (FY27_yearOf_(month) !== year) problems.push("Forecast Month must be in " + year);
+    if (amtRaw === "" || !/\d/.test(amtRaw)) problems.push("Amount missing");
+    if (!group) problems.push("Product Group missing");
+    if (problems.length) { manualResults.push({ row: r.__row, status: "NOT ADDED: " + problems.join("; ") }); return; }
+    const id15 = FY27_id15_(idRaw);
+    const b0 = firstBaseByFull[id15] || firstBaseByBilling[idRaw] || null;
+    const sf0 = sfById[id15] || sfByOrg[idRaw] || null;
+    let attrs = {};
+    if (b0) attrs = attrsFromBaseline(b0);
+    else if (sf0) attrs = {
+      accountNameWithOrg: FY27_str_(sf0["Account Name"]) + (sf0["Student Org Id"] ? " (" + sf0["Student Org Id"] + ")" : ""), studentOrgId: FY27_str_(sf0["Student Org Id"]),
+      accountName: FY27_str_(sf0["Account Name"]), fullId: FY27_str_(sf0["FULL ID"]), rating: FY27_str_(sf0["Rating"]), clientCategory: FY27_str_(sf0["Client Category"]),
+      clientSubCategory: FY27_str_(sf0["Client Sub-Category"]), billingState: FY27_str_(sf0["Billing State/Province"]), accountOwner: FY27_str_(sf0["Account Owner"]),
+      csm: FY27_str_(sf0["Client Success Manager"]), parentAccount: FY27_str_(sf0["Parent Account"]), billingCountry: FY27_str_(sf0["Billing Country"]),
+      parentAccountId: FY27_str_(sf0["Parent Account ID"]), accountRecordType: FY27_str_(sf0["Account Record Type"])
+    };
+    const M = makeLine(attrs);
+    // a manual line is not tied to a baseline row
+    M.baselineMonth = ""; M.bookingId = ""; M.priorBookingType = ""; M.nextBookingType = ""; M.adjustment = "FALSE";
+    if (!b0 && !sf0) { M.fullId = idRaw; }
+    if (FY27_str_(r["Account Name"])) M.accountName = FY27_str_(r["Account Name"]);
+    if (FY27_str_(r["CSM"])) M.csm = FY27_str_(r["CSM"]);
+    M.productGroup = group; M.productName = FY27_str_(r["Product Name"]);
+    M.forecastSource = cfg.SOURCES.MANUAL;
+    M.forecastMonth = month;
+    M.forecastAmount = FY27_num_(amtRaw);
+    M.valueIfBooked = M.forecastAmount;
+    const catLc = FY27_str_(r["Forecast Category"]).toLowerCase();
+    M.expectation = (cfg.CATEGORIES || []).filter(function (c) { return c.toLowerCase() === catLc; })[0] || "Expected";
+    M.status = M.expectation === "Captured" ? "Booked" : "Forecast";
+    M.bookingType = FY27_str_(r["Booking Type"]) || "Manual add-on";
+    M.reason = M.expectation === "Not Expected" ? FY27_str_(r["Not Expected Reason"]) : "";
+    M.stage = M.expectation === "Not Expected" ? "" : (FY27_str_(r["Roster Stage"]) || (M.status === "Booked" ? "Submitted" : "Not started"));
+    M.segment = "Manual add-on";
+    M.isManual = true; M.manualRow = r.__row;
+    M.flags.push("Manual add-on" + (FY27_str_(r["Comment"]) ? ": " + FY27_str_(r["Comment"]) : ""));
+    lines.push(M);
+    manualResults.push({ row: r.__row, status: (b0 || sf0) ? "Added" : "Added (ID not found in the data - check it)" });
+  });
+
   /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
   if (!cfg.TAG_CREDIT) lines.forEach(function (d) { d.credit = ""; d.creditBasis = ""; });
   const detail = lines;
@@ -886,25 +943,38 @@ function FY27_buildForecast(input, cfg) {
   const order = [];
   detail.forEach(function (d) {
     d.forecastQuarter = FY27_quarterOf_(d.forecastMonth);
-    const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, d.expectation].join("|");
+    const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, d.expectation, d.isManual ? "M" + d.manualRow : ""].join("|");
     if (!groups[gk]) { groups[gk] = []; order.push(gk); }
     groups[gk].push(d);
   });
   const grouped = order.map(function (gk) { return FY27_mergeLines_(groups[gk], makeLine); });
 
   /* ---- 4. Apply manual overrides (keyed on the grouped line so they survive refreshes) ---- */
+  // The key must not change when a data refresh changes a line's category, so it holds account, product group, month and booked-or-not only;
+  // rows that share it are numbered in a fixed order (largest first).
   const keyCount = {};
-  grouped.forEach(function (L) {
-    const base = [FY27_id15_(L.fullId), L.studentOrgId, L.productGroup, L.forecastMonth, L.credit, L.status, L.expectation].join("|");
+  grouped.slice().sort(function (a, b) {
+    return (a.forecastAmount < b.forecastAmount ? 1 : a.forecastAmount > b.forecastAmount ? -1 : 0) ||
+      (a.productName < b.productName ? -1 : a.productName > b.productName ? 1 : 0);
+  }).forEach(function (L) {
+    const base = [FY27_id15_(L.fullId), L.studentOrgId, L.productGroup, L.forecastMonth, L.status, L.isManual ? "M" + L.manualRow : ""].join("|");
     keyCount[base] = (keyCount[base] || 0) + 1;
     L.key = base + "|" + keyCount[base];
   });
+  const lineKeys = {};
+  grouped.forEach(function (L) { lineKeys[L.key] = true; });
   const ovByKey = {};
   (input.overrides || []).forEach(function (r) {
     const k = FY27_str_(r["Line Key"]);
     if (k) ovByKey[k] = r;
   });
   let overridesApplied = 0;
+  const overrideStatus = {};      // key -> "Applied" | "Not found"
+  Object.keys(ovByKey).forEach(function (k) {
+    const o = ovByKey[k];
+    const has = ["Override Amount", "Override Month", "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"].some(function (f) { return FY27_str_(o[f]) !== ""; }) || FY27_bool_(o["Exclude"]);
+    if (has) overrideStatus[k] = lineKeys[k] ? "Applied" : "Not found";
+  });
   grouped.forEach(function (L) {
     const ov = ovByKey[L.key];
     if (!ov) return;
@@ -915,7 +985,10 @@ function FY27_buildForecast(input, cfg) {
     const cat = (cfg.CATEGORIES || []).filter(function (c) { return c.toLowerCase() === catRaw; })[0] || "";
     const reasonRaw = FY27_str_(ov["Not Expected Reason"]);
     const stageRaw = FY27_str_(ov["Roster Stage"]);
-    if (!exclude && amt === "" && !mo && !cat && !reasonRaw && !stageRaw) return;
+    if (!exclude && amt === "" && !mo && !cat && !reasonRaw && !stageRaw) {
+      if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));       // a comment alone is shown, it changes nothing
+      return;
+    }
     overridesApplied++;
     if (cat) {
       L.expectation = cat;
@@ -1003,6 +1076,9 @@ function FY27_buildForecast(input, cfg) {
       otcTargetRows: target.length,
       otcMatched: Object.keys(usedOtc).length,
       overridesApplied: overridesApplied,
+      overrideStatus: overrideStatus,
+      manualResults: manualResults,
+      manualAdded: lines.filter(function (L) { return L.isManual; }).length,
       total: lines.reduce(function (s, L) { return s + L.forecastAmount; }, 0),
       totalWeighted: FY27_round2_(lines.reduce(function (s, L) { return s + L.weightedAmount; }, 0))
     }
@@ -1276,6 +1352,118 @@ function FY27_team2026Retention_(rows) {
   return base > 0 ? { baseline: base, forecast: fc, pct: fc / base, manualAdds: manual, pctWithManual: (fc + manual) / base } : null;
 }
 
+/* ---------------- CSM working tab (pure helpers) ---------------- */
+
+/** Columns of the CSM tab: [header, line field, kind]. "SET:" columns and Comment are the CSM's inputs (stored on the Overrides tab). */
+const FY27_CSM_COLUMNS = [
+  ["CSM", "csm"], ["Account Name", "accountName"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Rating", "rating"],
+  ["Product Group", "productGroup"], ["Product Name", "productName"], ["Forecast Month", "forecastMonth", "month"],
+  ["Baseline $", "baselineAmount", "money"], ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
+  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Timing vs Baseline", "timing"],
+  ["Source", "forecastSource"], ["Why (flags)", "flags", "flags"]
+];
+const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
+const FY27_CSM_TAIL = ["Saved?", "Line Key"];
+
+function FY27_csmHeaders_() {
+  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL);
+}
+
+/** Rows for the CSM tab, sorted CSM > account > month, with each line's saved override (from the Overrides tab) pre-filled. */
+function FY27_csmRows_(lines, overrideRows, status) {
+  const ovByKey = {};
+  (overrideRows || []).forEach(function (r) { const k = FY27_str_(r["Line Key"]); if (k) ovByKey[k] = r; });
+  const sorted = lines.slice().sort(function (a, b) {
+    return (a.csm < b.csm ? -1 : a.csm > b.csm ? 1 : 0) || (a.accountName < b.accountName ? -1 : a.accountName > b.accountName ? 1 : 0) ||
+      (a.forecastMonth < b.forecastMonth ? -1 : a.forecastMonth > b.forecastMonth ? 1 : 0);
+  });
+  return sorted.map(function (L) {
+    const o = ovByKey[L.key] || {};
+    const mo = FY27_monthKey_(o["Override Month"]);
+    const row = FY27_CSM_COLUMNS.map(function (c) {
+      const v = L[c[1]];
+      if (c[2] === "flags") return (v || []).join(" | ");
+      return v === undefined || v === null ? "" : v;
+    });
+    const saved = status && status[L.key] ? (status[L.key] === "Applied" ? "Applied" : "Not applied") : "";
+    return row.concat([FY27_str_(o["Forecast Category"]), FY27_str_(o["Not Expected Reason"]), FY27_str_(o["Roster Stage"]), FY27_str_(o["Override Amount"]), mo,
+      FY27_str_(o["Comment"]), saved, L.key]);
+  });
+}
+
+/** One CSM-tab row -> the record kept on the Overrides tab. */
+function FY27_overrideRecFromCsmRow_(headers, row) {
+  const g = function (n) { const i = headers.indexOf(n); return i < 0 ? "" : row[i]; };
+  const rec = {
+    "Line Key": FY27_str_(g("Line Key")), "Account": g("Account Name"), "Product": g("Product Group") + " / " + g("Product Name"), "Forecast Month": g("Forecast Month"),
+    "Override Amount": g("SET: Amount"), "Override Month": g("SET: Month"), "Forecast Category": g("SET: Category"), "Not Expected Reason": g("SET: Reason"),
+    "Roster Stage": g("SET: Stage"), "Comment": g("Comment")
+  };
+  rec.empty = ["Override Amount", "Override Month", "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"].every(function (f) { return FY27_str_(rec[f]) === ""; });
+  return rec;
+}
+
+/**
+ * Upsert a record into the Overrides store (a 2-D array of values below `header`). A record with every input blank removes the stored row.
+ * Returns { values, action: "added" | "updated" | "removed" | "none" }.
+ */
+function FY27_upsertOverride_(header, values, rec) {
+  const col = function (n) { return header.indexOf(n); };
+  const kc = col("Line Key");
+  let idx = -1;
+  for (let i = 0; i < values.length; i++) if (FY27_str_(values[i][kc]) === rec["Line Key"]) { idx = i; break; }
+  if (rec.empty) {
+    if (idx < 0) return { values: values, action: "none" };
+    const out = values.slice(); out.splice(idx, 1);
+    return { values: out, action: "removed" };
+  }
+  const row = idx >= 0 ? values[idx].slice() : header.map(function () { return ""; });
+  Object.keys(rec).forEach(function (k) { const c = col(k); if (c >= 0) row[c] = rec[k]; });
+  const out2 = values.slice();
+  if (idx >= 0) { out2[idx] = row; return { values: out2, action: "updated" }; }
+  out2.push(row);
+  return { values: out2, action: "added" };
+}
+
+/** The "Read Me" tab text for CSMs. */
+function FY27_readmeLines_(cfg) {
+  const w = cfg.WEIGHTS || {};
+  const pct = function (k) { return Math.round((w[k] === undefined ? 1 : w[k]) * 100) + "%"; };
+  return [
+    ["FY" + cfg.FORECAST_YEAR + " FORECAST - HOW TO USE THIS FILE"],
+    [""],
+    ["WHAT YOU DO"],
+    ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
+    ["2. Each row is one account, product group and month. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
+    ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
+    ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
+    ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
+    [""],
+    ["THE FIVE CATEGORIES (Forecast Category)"],
+    ["Captured - already booked."],
+    ["Expected - we expect it to book as shown (counts " + pct("Expected") + " in the weighted forecast)."],
+    ["At Risk - could happen but we are not sure (weighted). The 'Why' says what is uncertain."],
+    ["Pending Contract - the client's contract has ended or is not in the billing system yet; a renewal is needed first (weighted)."],
+    ["Not Expected - we do not expect it (counts $0). Pick a reason: Lost, No Revenue This Term, Non-Recurring, Adjustment or Data Error."],
+    [""],
+    ["WEIGHTED $ - the number to use for totals"],
+    ["'Forecast $ (full value)' is what the line is worth if it books. 'Weighted $' multiplies it by how likely that kind of line has been to book (Expected 100%, At Risk and Pending Contract lower, Not Expected 0%)."],
+    ["Add up Weighted $, not Forecast $, for any total. Full value overstates the year."],
+    [""],
+    ["ROSTER STAGE (where you are with the roster)"],
+    ["Not started, In progress, Received - held, Submitted, Not needed (rebookings and SSO need no new roster)."],
+    [""],
+    ["TIMING vs BASELINE"],
+    ["Early / On time / Late is worked out for you from the forecast month. To move a month, use SET: Month."],
+    [""],
+    ["REFRESH"],
+    ["The file is rebuilt when new Tableau / OTC / Salesforce data is pasted in (menu: FY27 Forecast > Build / refresh forecast). Your yellow-cell changes are re-applied each time."],
+    ["If a line changes so much in a refresh that your change cannot be matched, the 'Saved?' column on the CSM tab shows 'Not applied' (and the Overrides tab says NOT FOUND) - re-enter it on that line."],
+    [""],
+    ["DO NOT edit the non-yellow columns or the other tabs (Excel-style warning appears if you try). Questions: ask the forecast owner."]
+  ];
+}
+
 function FY27_severity_(flag) {
   const f = flag.toLowerCase();
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
@@ -1291,6 +1479,8 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_buildForecast: FY27_buildForecast, FY27_gridToRows_: FY27_gridToRows_,
     FY27_monthKey_: FY27_monthKey_, FY27_addMonths_: FY27_addMonths_, FY27_family_: FY27_family_,
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
-    FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_
+    FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
+    FY27_csmHeaders_: FY27_csmHeaders_, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_readmeLines_: FY27_readmeLines_
   };
 }

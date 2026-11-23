@@ -20,6 +20,9 @@ const FY27_CFG = {
     ADJUSTMENTS: "Adjustments",     // negative adjustments (baseline only, never forecast); optional
     REVIEW: "Forecast Review",
     RAW_HISTORY_PREFIX: "Flex Hierarchy Crosstab",   // raw Tableau crosstab 2024-2026 (account, group, product, booking type, CSM, month, sales)
+    CSM: "CSM Forecast",              // the working tab for CSMs: filter to your accounts, edit the yellow cells
+    MANUAL: "Manual Add-Ons",         // lines the data does not know about (new sales, placeholders); source "Manual Add On"
+    README: "Read Me",
     BT_BEGINNING: "2026 Beginning Forecast Reference",
     BT_FINAL: "2026 Forecast Reference",
     BT_ACTUALS_2024: "2024 Actuals",
@@ -179,6 +182,10 @@ const FY27_CFG = {
   // otherwise make a 2026 line look "covered" when, on 1 Jan 2026, its contract had ended and no renewal existed yet. That leak made "contract ended"
   // look worse than it was and pushed its weight too low.
   BT_AS_OF_DROP_CREATED_AFTER: true,
+
+  // Dropdown lists for the Manual Add-Ons tab
+  PRODUCT_GROUPS: ["NURSING COURSE", "MED COURSE", "IHUMAN", "ALLIED HEALTH COURSE"],
+  BOOKING_TYPES: ["New Logo", "Renewal", "Cross Sell"],
 
   // Summary page: predicted retention under each model, next to actual retention history. Re-runs the engine a few times (a bit slower).
   RETENTION_MODELS: true,
