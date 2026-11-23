@@ -1549,10 +1549,11 @@ const FY27_CSM_COLUMNS = [
   ["CSM", "csm"], ["Account Name", "accountName"], ["Rating", "rating"], ["Product Group", "productGroup"], ["Product Name", "productName"],
   ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month"],
   ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
-  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Why (flags)", "flags", "flags"]
+  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"]
 ];
 const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
-const FY27_CSM_TAIL = ["Saved?", "Line Key"];
+// after the yellow cells: whether the change was saved, the explanation (kept out of the way of the columns people read and edit), and the hidden key
+const FY27_CSM_TAIL = ["Saved?", "Why (flags)", "Line Key"];
 // to the right of the yellow cells: IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
 const FY27_CSM_DETAIL = [
   ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
@@ -1577,12 +1578,11 @@ function FY27_csmRows_(lines, overrideRows, status) {
     const mo = FY27_monthKey_(o["Override Month"]);
     const row = FY27_CSM_COLUMNS.map(function (c) {
       const v = L[c[1]];
-      if (c[2] === "flags") return (v || []).join(" | ");
       return v === undefined || v === null ? "" : v;
     });
     const saved = status && status[L.key] ? (status[L.key] === "Applied" ? "Applied" : "Not applied") : "";
     return row.concat([FY27_str_(o["Forecast Category"]), FY27_str_(o["Not Expected Reason"]), FY27_str_(o["Roster Stage"]), FY27_str_(o["Override Amount"]), mo,
-      FY27_str_(o["Comment"]), saved, L.key].concat(FY27_CSM_DETAIL.map(function (c) { const v = L[c[1]]; return v === undefined || v === null ? "" : v; })));
+      FY27_str_(o["Comment"]), saved, (L.flags || []).join(" | "), L.key].concat(FY27_CSM_DETAIL.map(function (c) { const v = L[c[1]]; return v === undefined || v === null ? "" : v; })));
   });
 }
 

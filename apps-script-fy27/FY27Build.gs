@@ -521,8 +521,9 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   dd("SET: Category", cfg.CATEGORIES); dd("SET: Reason", cfg.NOT_EXPECTED_REASONS); dd("SET: Stage", cfg.ROSTER_STAGES);
   // colour the category so risk is visible at a glance
   const catRange = sh.getRange(2, colOf("Forecast Category"), n, 1);
+  // none of these is yellow: yellow means "you can type here"
   const rule = function (text, bg) { return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(text).setBackground(bg).setRanges([catRange]).build(); };
-  sh.setConditionalFormatRules([rule("Captured", "#D9EAD3"), rule("At Risk", "#FFE599"), rule("Pending Contract", "#CFE2F3"), rule("Not Expected", "#E0E0E0")]);
+  sh.setConditionalFormatRules([rule("Captured", "#D9EAD3"), rule("At Risk", "#F4CCCC"), rule("Pending Contract", "#CFE2F3"), rule("Not Expected", "#E0E0E0")]);
   // filter on the header row so a CSM can pick their own name
   sh.getRange(1, 1, out.length, headers.length).createFilter();
   // calculated columns: warn before editing
@@ -537,7 +538,8 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   sh.getRange(1, colOf("Baseline Month")).setNote("The month of the booking this line is based on (last year's booking, from Tableau). Blank = no baseline (a new or extra cohort).");
   sh.getRange(1, colOf("Weighted $")).setNote("Forecast $ x how likely this kind of line is to book. Add this column up for any total.");
   sh.getRange(1, colOf("Full ID")).setNote("Copy this into the Manual Add-Ons or Account Merges tab.");
-  sh.getRange(1, colOf("SET: Category")).setNote("Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh.");
+  sh.getRange(1, colOf("SET: Category")).setNote("YELLOW = you can type here (all six yellow columns). Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh. Leave blank to keep the calculated value.");
+  sh.getRange(1, colOf("Comment")).setNote("YELLOW = you can type here. Free text, saved with the line.");
   sh.getRange(1, colOf("SET: Amount")).setNote("Only if the amount is wrong. This replaces the full-value amount.");
   sh.getRange(1, colOf("SET: Month")).setNote("Only if it will book in a different month than shown.");
   return sh;
