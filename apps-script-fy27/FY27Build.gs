@@ -511,7 +511,7 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   [colOf("Baseline $"), colOf("Forecast $ (full value)"), colOf("Weighted $"), colOf("SET: Amount")].forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat("$#,##0"); });
   const widths = { "CSM": 130, "Account Name": 260, "Full ID": 150, "Student Org ID": 150, "Rating": 60, "Product Group": 130, "Product Name": 200, "Forecast Month": 80,
     "Baseline $": 90, "Forecast $ (full value)": 100, "Weighted $": 90, "Forecast Category": 120, "Not Expected Reason": 140, "Roster Stage": 110, "Timing vs Baseline": 80,
-    "Source": 100, "Why (flags)": 420, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
+    "Source": 100, "Why (flags)": 420, "Booking Type": 110, "Cohort Names": 220, "Cohort Codes": 140, "Est. Students": 80, "Price Per Student": 90, "Prior-Year Cohorts": 200, "Contract End": 90, "Weight": 60, "Weight Basis": 200, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
   headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
   // dropdowns on the inputs
   const dd = function (h, list) {
@@ -527,7 +527,10 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   // calculated columns: warn before editing
   const warn = function (rng, desc) { const p = rng.protect(); p.setDescription(desc); p.setWarningOnly(true); };
   warn(sh.getRange(2, 1, n, nCalc), "FY27 calculated columns");
-  warn(sh.getRange(2, nCalc + nIn + 1, n, 2), "FY27 system columns");
+  warn(sh.getRange(2, nCalc + nIn + 1, n, headers.length - nCalc - nIn), "FY27 system columns");
+  sh.getRange(2, colOf("Weight"), n, 1).setNumberFormat("0%");
+  sh.getRange(2, colOf("Price Per Student"), n, 1).setNumberFormat("$#,##0");
+  sh.getRange(1, colOf("Booking Type")).setNote("What kind of line this is: Renewal (baseline-backed), Rebooking (cohort code present), Roster Chasing (extra predicted cohort), New sale...");
   sh.hideColumns(colOf("Line Key"));
   sh.getRange(1, colOf("SET: Category")).setNote("Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh.");
   sh.getRange(1, colOf("SET: Amount")).setNote("Only if the amount is wrong. This replaces the full-value amount.");

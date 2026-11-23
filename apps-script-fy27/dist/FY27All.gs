@@ -1788,9 +1788,14 @@ const FY27_CSM_COLUMNS = [
 ];
 const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
 const FY27_CSM_TAIL = ["Saved?", "Line Key"];
+// level of detail behind each line, to the right of the yellow cells: what kind of line it is and which cohorts it is made of
+const FY27_CSM_DETAIL = [
+  ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
+  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
+];
 
 function FY27_csmHeaders_() {
-  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL);
+  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL, FY27_CSM_DETAIL.map(function (c) { return c[0]; }));
 }
 
 /** Rows for the CSM tab, sorted CSM > account > month, with each line's saved override (from the Overrides tab) pre-filled. */
@@ -1811,7 +1816,7 @@ function FY27_csmRows_(lines, overrideRows, status) {
     });
     const saved = status && status[L.key] ? (status[L.key] === "Applied" ? "Applied" : "Not applied") : "";
     return row.concat([FY27_str_(o["Forecast Category"]), FY27_str_(o["Not Expected Reason"]), FY27_str_(o["Roster Stage"]), FY27_str_(o["Override Amount"]), mo,
-      FY27_str_(o["Comment"]), saved, L.key]);
+      FY27_str_(o["Comment"]), saved, L.key].concat(FY27_CSM_DETAIL.map(function (c) { const v = L[c[1]]; return v === undefined || v === null ? "" : v; })));
   });
 }
 
@@ -1858,7 +1863,7 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["WHAT YOU DO"],
     ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
-    ["2. Each row is one account, product group and month. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
+    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
     ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
     ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
     ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
@@ -1911,7 +1916,7 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_monthKey_: FY27_monthKey_, FY27_addMonths_: FY27_addMonths_, FY27_family_: FY27_family_,
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
-    FY27_csmHeaders_: FY27_csmHeaders_, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
+    FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
     FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_readmeLines_: FY27_readmeLines_
   };
 }
@@ -2430,7 +2435,7 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   [colOf("Baseline $"), colOf("Forecast $ (full value)"), colOf("Weighted $"), colOf("SET: Amount")].forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat("$#,##0"); });
   const widths = { "CSM": 130, "Account Name": 260, "Full ID": 150, "Student Org ID": 150, "Rating": 60, "Product Group": 130, "Product Name": 200, "Forecast Month": 80,
     "Baseline $": 90, "Forecast $ (full value)": 100, "Weighted $": 90, "Forecast Category": 120, "Not Expected Reason": 140, "Roster Stage": 110, "Timing vs Baseline": 80,
-    "Source": 100, "Why (flags)": 420, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
+    "Source": 100, "Why (flags)": 420, "Booking Type": 110, "Cohort Names": 220, "Cohort Codes": 140, "Est. Students": 80, "Price Per Student": 90, "Prior-Year Cohorts": 200, "Contract End": 90, "Weight": 60, "Weight Basis": 200, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
   headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
   // dropdowns on the inputs
   const dd = function (h, list) {
@@ -2446,7 +2451,10 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   // calculated columns: warn before editing
   const warn = function (rng, desc) { const p = rng.protect(); p.setDescription(desc); p.setWarningOnly(true); };
   warn(sh.getRange(2, 1, n, nCalc), "FY27 calculated columns");
-  warn(sh.getRange(2, nCalc + nIn + 1, n, 2), "FY27 system columns");
+  warn(sh.getRange(2, nCalc + nIn + 1, n, headers.length - nCalc - nIn), "FY27 system columns");
+  sh.getRange(2, colOf("Weight"), n, 1).setNumberFormat("0%");
+  sh.getRange(2, colOf("Price Per Student"), n, 1).setNumberFormat("$#,##0");
+  sh.getRange(1, colOf("Booking Type")).setNote("What kind of line this is: Renewal (baseline-backed), Rebooking (cohort code present), Roster Chasing (extra predicted cohort), New sale...");
   sh.hideColumns(colOf("Line Key"));
   sh.getRange(1, colOf("SET: Category")).setNote("Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh.");
   sh.getRange(1, colOf("SET: Amount")).setNote("Only if the amount is wrong. This replaces the full-value amount.");

@@ -1554,9 +1554,14 @@ const FY27_CSM_COLUMNS = [
 ];
 const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
 const FY27_CSM_TAIL = ["Saved?", "Line Key"];
+// level of detail behind each line, to the right of the yellow cells: what kind of line it is and which cohorts it is made of
+const FY27_CSM_DETAIL = [
+  ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
+  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
+];
 
 function FY27_csmHeaders_() {
-  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL);
+  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL, FY27_CSM_DETAIL.map(function (c) { return c[0]; }));
 }
 
 /** Rows for the CSM tab, sorted CSM > account > month, with each line's saved override (from the Overrides tab) pre-filled. */
@@ -1577,7 +1582,7 @@ function FY27_csmRows_(lines, overrideRows, status) {
     });
     const saved = status && status[L.key] ? (status[L.key] === "Applied" ? "Applied" : "Not applied") : "";
     return row.concat([FY27_str_(o["Forecast Category"]), FY27_str_(o["Not Expected Reason"]), FY27_str_(o["Roster Stage"]), FY27_str_(o["Override Amount"]), mo,
-      FY27_str_(o["Comment"]), saved, L.key]);
+      FY27_str_(o["Comment"]), saved, L.key].concat(FY27_CSM_DETAIL.map(function (c) { const v = L[c[1]]; return v === undefined || v === null ? "" : v; })));
   });
 }
 
@@ -1624,7 +1629,7 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["WHAT YOU DO"],
     ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
-    ["2. Each row is one account, product group and month. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
+    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
     ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
     ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
     ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
@@ -1677,7 +1682,7 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_monthKey_: FY27_monthKey_, FY27_addMonths_: FY27_addMonths_, FY27_family_: FY27_family_,
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
-    FY27_csmHeaders_: FY27_csmHeaders_, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
+    FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
     FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_readmeLines_: FY27_readmeLines_
   };
 }

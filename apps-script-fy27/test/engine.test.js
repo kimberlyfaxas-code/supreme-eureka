@@ -1053,4 +1053,15 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const st = bad.stats.mergeResults.map((x) => x.status).join(" / ");
   assert.ok(/From ID not found/.test(st) && /Into ID not found/.test(st) && /same account/.test(st), st);
 })();
+// 59. CSM tab rows carry the detail columns (booking type, cohorts, students) and match the header width
+(function () {
+  const r = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025DETAIL0" })], otc: [otc({ "Full ID": "0014u000025DETAIL0", "cohort_name": "RN Feb Detail" })], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const hdr = E.FY27_csmHeaders_();
+  const rows = E.FY27_csmRows_(r.lines, [], {});
+  assert.ok(rows.length >= 1);
+  rows.forEach((row) => assert.strictEqual(row.length, hdr.length));
+  const row = rows[0];
+  assert.ok(row[hdr.indexOf("Cohort Names")].indexOf("RN Feb Detail") >= 0);
+  assert.strictEqual(row[hdr.indexOf("Booking Type")], r.lines[0].bookingType);
+})();
 console.log("all engine tests passed");
