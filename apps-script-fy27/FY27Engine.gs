@@ -755,14 +755,15 @@ function FY27_buildForecast(input, cfg) {
       const noContract = !otcByAcct[b.fullId] || !cEnd;
       const flatFee = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
       const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract,
-        flatFee: flatFee, overage: false };
+        flatFee: flatFee, overage: false, monthsSinceEnd: ended ? FY27_monthDiff_(b.fcMonth, cEnd) : 0 };
       const rules = cfg.AT_RISK_WEIGHT_RULES || [];
       for (let ri = 0; ri < rules.length; ri++) {
         const ru = rules[ri];
         if ((ru.group === undefined || ru.group.toUpperCase() === facts.group) && (ru.rating === undefined || ru.rating === facts.rating) &&
             (ru.ended === undefined || ru.ended === facts.ended) && (ru.noContract === undefined || ru.noContract === facts.noContract) &&
             (ru.covers === undefined || ru.covers === facts.covers) && (ru.flatFee === undefined || ru.flatFee === facts.flatFee) &&
-            (ru.overage === undefined || ru.overage === facts.overage)) {
+            (ru.overage === undefined || ru.overage === facts.overage) &&
+            (ru.endedMaxMonths === undefined || (facts.ended && facts.monthsSinceEnd <= ru.endedMaxMonths))) {
           L.weightOverride = ru.weight; L.segment = ru.name;
           break;
         }
@@ -1265,12 +1266,14 @@ function FY27_historicalRetention_(rawRows, lastCompleteMonth) {
 
 /** The 2026 team forecast as recorded in the 2026 forecast reference: forecast / baseline over the forecast lines. */
 function FY27_team2026Retention_(rows) {
-  let base = 0, fc = 0;
+  let base = 0, fc = 0, manual = 0;
   rows.forEach(function (r) {
     if (FY27_str_(r["Forecast Line Type"]).toLowerCase().indexOf("adjust") >= 0) return;
+    // "Manual Add" lines are new sales and placeholders with no baseline; they are not retention of the baseline
+    if (FY27_str_(r["Forecast Source"]).toLowerCase().indexOf("manual") >= 0) { manual += FY27_num_(r["Forecast Amount"]); return; }
     base += FY27_num_(r["Baseline Amount"]); fc += FY27_num_(r["Forecast Amount"]);
   });
-  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base } : null;
+  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base, manualAdds: manual, pctWithManual: (fc + manual) / base } : null;
 }
 
 function FY27_severity_(flag) {

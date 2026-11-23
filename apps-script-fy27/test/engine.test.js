@@ -608,12 +608,16 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const med = mk({ "Product Group": "MED COURSE" }, [done("2028-01-01", "MED COURSE")]);
   // the client's only Med line is its flat fee, whatever its size
   assert.strictEqual(med.lines[0].segment, "Med/Allied flat fee, contract covers");
-  assert.strictEqual(med.lines[0].weight, 0.40);
-  assert.strictEqual(med.lines[0].weightedAmount, 400);
+  assert.strictEqual(med.lines[0].weight, 0.30);
+  assert.strictEqual(med.lines[0].weightedAmount, 300);
   const ended = mk({}, [done("2026-12-01")]);
-  assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
+  assert.strictEqual(ended.lines[0].segment, "Contract ended 1-3 months before");   // ended 2026-12, forecast month 2027-02
   assert.strictEqual(ended.lines[0].expectation, "Pending Contract");
-  assert.strictEqual(ended.lines[0].weightedAmount, 300);
+  assert.strictEqual(ended.lines[0].weightedAmount, 850);
+  const endedLong = mk({}, [done("2026-06-01")]);                                    // ended 8 months before the forecast month
+  assert.strictEqual(endedLong.lines[0].segment, "Contract ended 7+ months before"); assert.strictEqual(endedLong.lines[0].weightedAmount, 600);
+  const endedMid = mk({}, [done("2026-10-01")]);                                     // ended 4 months before
+  assert.strictEqual(endedMid.lines[0].segment, "Contract ended 4-6 months before"); assert.strictEqual(endedMid.lines[0].weightedAmount, 700);
   const red = mk({ "Rating": "Red" }, [done("2028-01-01")]);
   assert.strictEqual(red.lines[0].weight, 0.55);
   const ih = mk({ "Product Group": "IHUMAN" }, [done("2028-01-01", "IHUMAN")]);
@@ -816,7 +820,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const withLeak = BT2.FY27_backtest_({ beginning: beg, final: fin, salesforce: sf, otc: [old, renewal], actuals: [] }, Object.assign({}, CFG, { BT_AS_OF_DROP_CREATED_AFTER: false }));
   const asOf = BT2.FY27_backtest_({ beginning: beg, final: fin, salesforce: sf, otc: [old, renewal], actuals: [] }, Object.assign({}, CFG, { BT_AS_OF_DROP_CREATED_AFTER: true }));
   assert.ok(!/ended/i.test(withLeak.all[0].segment));      // leak: the later renewal makes the contract look live
-  assert.strictEqual(asOf.all[0].segment, "Contract ended before month");   // as of 1 Jan 2026 the contract had ended
+  assert.ok(/^Contract ended/.test(asOf.all[0].segment), asOf.all[0].segment);   // as of 1 Jan 2026 the contract had ended
 }
 // 50. Med / Allied Health are flat fees: the flat fee follows the contract; small add-ons are weighted low; no extra-cohort logic
 {
@@ -824,9 +828,9 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const mk = (group, amt, end) => run([tab({ "FULL ID": F, "Product Group": group, "Baseline Amount - Tableau": String(amt) })],
     [otc({ "Full ID": F, "Product Group": group, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": end })]);
   const flatCovers = mk("MED COURSE", 120000, "2028-01-01").lines[0];
-  assert.strictEqual(flatCovers.segment, "Med/Allied flat fee, contract covers"); assert.strictEqual(flatCovers.weightedAmount, 48000);
+  assert.strictEqual(flatCovers.segment, "Med/Allied flat fee, contract covers"); assert.strictEqual(flatCovers.weightedAmount, 36000);
   const flatEnded = mk("ALLIED HEALTH COURSE", 120000, "2026-12-01").lines[0];
-  assert.strictEqual(flatEnded.segment, "Med/Allied flat fee, contract ended"); assert.strictEqual(flatEnded.weightedAmount, 12000);
+  assert.strictEqual(flatEnded.segment, "Med/Allied flat fee, contract ended"); assert.strictEqual(flatEnded.weightedAmount, 48000);
   // a small line next to the same client's big flat fee is a one-time add-on (relative, not an absolute dollar cutoff)
   const two = run([tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "25000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }),
                    tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "2000", "Baseline Booking Month - Tableau": "9/1/2026", "Forecast Month - Tableau": "9/1/2027" }),
@@ -885,6 +889,9 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(cur.fullGross, 1000);              // baseline-only line repeats at full value
   assert.strictEqual(Math.round(cur.weightedGross), 800);   // "contract covers year, no cohort" weight 80%
   assert.strictEqual(cur.confirmedGross, 0);            // At Risk is not confirmed
-  assert.ok(E.FY27_team2026Retention_([{ "Forecast Line Type": "Forecast", "Baseline Amount": "1000", "Forecast Amount": "800" }, { "Forecast Line Type": "Adjustment", "Baseline Amount": "0", "Forecast Amount": "-50" }]).pct === 0.8);
+  const tr = E.FY27_team2026Retention_([{ "Forecast Line Type": "Forecast", "Forecast Source": "System Forecast", "Baseline Amount": "1000", "Forecast Amount": "800" },
+    { "Forecast Line Type": "Forecast", "Forecast Source": "Manual Add", "Baseline Amount": "0", "Forecast Amount": "150" },
+    { "Forecast Line Type": "Adjustment", "Forecast Source": "Manual Add", "Baseline Amount": "0", "Forecast Amount": "-50" }]);
+  assert.strictEqual(tr.pct, 0.8); assert.strictEqual(tr.pctWithManual, 0.95); assert.strictEqual(tr.manualAdds, 150);
 }
 console.log("all engine tests passed");

@@ -54,6 +54,7 @@ Flags, Line Key. Forecast Category uses the FY2026 roll-up names so existing das
   is not counted at 100%. Starting weights come from the 2026 backtest; recalibrate after each backtest.
 - Med and Allied Health are flat fees (`FLAT_FEE_GROUPS`): a baseline-only flat-fee line follows the contract (ended 10%, covers 40%, no contract data 50%),
   and a line smaller than `FLAT_FEE_OVERAGE_FRACTION` (15%) of the SAME client's largest line in that group (a $2k line next to a $25k flat fee) is a one-time add-on: Not Expected, reason Non-Recurring, $0 (value kept in Value If Booked). Additional-cohort logic is not applied to them.
+- Contract ended before the forecast month (corrected as-of backtest, no later-renewal leak): kept 77%; weights by how long ago: 1-3 months 85%, 4-6 months 70%, 7+ months 60%.
 - Segment weights (`AT_RISK_WEIGHT_RULES`) for baseline-only lines, from the 2026 backtest: (older note) Med course 25%, contract ended 30%, Red 55%,
   iHuman 85%, contract covers year 80%, no OTC contract data 90% (calibrated on the as-of backtest).
 - `AMOUNT_BASIS` ("baseline" default): for a Tableau baseline row with matched OTC cohorts, the Tableau total is kept and split across the

@@ -235,7 +235,9 @@ function FY27_writeReview_(ss, result, retention) {
       fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "#,##0"]);
     });
     if (retention.team2026) {
-      const rr = add(["2026 team forecast (as recorded in the 2026 reference)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      let rr = add(["2026 team forecast, system-forecast lines only (like for like)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
+      rr = add(["...including manual adds (new sales and placeholders; not retention)", retention.team2026.baseline, retention.team2026.pctWithManual, "", "", ""]);
       fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
     }
     add(["Gross $ = renewals only (min of this year and last year per account x group); net $ includes expansion; logo = share of accounts x group with any booking."]);

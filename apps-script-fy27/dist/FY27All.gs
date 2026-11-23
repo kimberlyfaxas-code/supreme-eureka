@@ -129,10 +129,15 @@ const FY27_CFG = {
     // repeats only if the contract is alive; add-ons are variable and rarely repeat. Backtest (baseline-only Med/Allied lines): add-ons under
     // $1k kept 8%, $1-5k kept 23%; flat fees with the contract ended kept 4% (that backtest saw later renewals, so 10% is used), with the contract
     // covering the term kept 38%.
-    { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.10 },
-    { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.40 },
+    { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.40 },
+    { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.30 },
     { name: "Med/Allied flat fee, no contract data",   flatFee: true, noContract: true, weight: 0.50 },
-    { name: "Contract ended before month",      ended: true,         weight: 0.30 },
+    // CORRECTED AS-OF BACKTEST (orders created after 1 Jan 2026 removed, so a later renewal cannot hide an ended contract): lines whose contract had
+    // ended before the forecast month were kept 77% (325 lines, $4.4M), not the 27% the leaky backtest showed. By how long ago it ended: 1-3 months 86%,
+    // 4-6 months 72%, 7-12 months 62% (clients usually renew late, and a recent end is more likely a renewal in progress).
+    { name: "Contract ended 1-3 months before", ended: true, endedMaxMonths: 3, weight: 0.85 },
+    { name: "Contract ended 4-6 months before", ended: true, endedMaxMonths: 6, weight: 0.70 },
+    { name: "Contract ended 7+ months before",  ended: true,                    weight: 0.60 },
     { name: "Red rating, no cohort",            rating: "red",       weight: 0.55 },
     { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.85 },
     { name: "No OTC contract data",             noContract: true,     weight: 0.90 },
@@ -963,14 +968,15 @@ function FY27_buildForecast(input, cfg) {
       const noContract = !otcByAcct[b.fullId] || !cEnd;
       const flatFee = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
       const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract,
-        flatFee: flatFee, overage: false };
+        flatFee: flatFee, overage: false, monthsSinceEnd: ended ? FY27_monthDiff_(b.fcMonth, cEnd) : 0 };
       const rules = cfg.AT_RISK_WEIGHT_RULES || [];
       for (let ri = 0; ri < rules.length; ri++) {
         const ru = rules[ri];
         if ((ru.group === undefined || ru.group.toUpperCase() === facts.group) && (ru.rating === undefined || ru.rating === facts.rating) &&
             (ru.ended === undefined || ru.ended === facts.ended) && (ru.noContract === undefined || ru.noContract === facts.noContract) &&
             (ru.covers === undefined || ru.covers === facts.covers) && (ru.flatFee === undefined || ru.flatFee === facts.flatFee) &&
-            (ru.overage === undefined || ru.overage === facts.overage)) {
+            (ru.overage === undefined || ru.overage === facts.overage) &&
+            (ru.endedMaxMonths === undefined || (facts.ended && facts.monthsSinceEnd <= ru.endedMaxMonths))) {
           L.weightOverride = ru.weight; L.segment = ru.name;
           break;
         }
@@ -1473,12 +1479,14 @@ function FY27_historicalRetention_(rawRows, lastCompleteMonth) {
 
 /** The 2026 team forecast as recorded in the 2026 forecast reference: forecast / baseline over the forecast lines. */
 function FY27_team2026Retention_(rows) {
-  let base = 0, fc = 0;
+  let base = 0, fc = 0, manual = 0;
   rows.forEach(function (r) {
     if (FY27_str_(r["Forecast Line Type"]).toLowerCase().indexOf("adjust") >= 0) return;
+    // "Manual Add" lines are new sales and placeholders with no baseline; they are not retention of the baseline
+    if (FY27_str_(r["Forecast Source"]).toLowerCase().indexOf("manual") >= 0) { manual += FY27_num_(r["Forecast Amount"]); return; }
     base += FY27_num_(r["Baseline Amount"]); fc += FY27_num_(r["Forecast Amount"]);
   });
-  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base } : null;
+  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base, manualAdds: manual, pctWithManual: (fc + manual) / base } : null;
 }
 
 function FY27_severity_(flag) {
@@ -1738,7 +1746,9 @@ function FY27_writeReview_(ss, result, retention) {
       fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "#,##0"]);
     });
     if (retention.team2026) {
-      const rr = add(["2026 team forecast (as recorded in the 2026 reference)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      let rr = add(["2026 team forecast, system-forecast lines only (like for like)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
+      rr = add(["...including manual adds (new sales and placeholders; not retention)", retention.team2026.baseline, retention.team2026.pctWithManual, "", "", ""]);
       fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
     }
     add(["Gross $ = renewals only (min of this year and last year per account x group); net $ includes expansion; logo = share of accounts x group with any booking."]);

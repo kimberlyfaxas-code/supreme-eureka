@@ -124,10 +124,15 @@ const FY27_CFG = {
     // repeats only if the contract is alive; add-ons are variable and rarely repeat. Backtest (baseline-only Med/Allied lines): add-ons under
     // $1k kept 8%, $1-5k kept 23%; flat fees with the contract ended kept 4% (that backtest saw later renewals, so 10% is used), with the contract
     // covering the term kept 38%.
-    { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.10 },
-    { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.40 },
+    { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.40 },
+    { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.30 },
     { name: "Med/Allied flat fee, no contract data",   flatFee: true, noContract: true, weight: 0.50 },
-    { name: "Contract ended before month",      ended: true,         weight: 0.30 },
+    // CORRECTED AS-OF BACKTEST (orders created after 1 Jan 2026 removed, so a later renewal cannot hide an ended contract): lines whose contract had
+    // ended before the forecast month were kept 77% (325 lines, $4.4M), not the 27% the leaky backtest showed. By how long ago it ended: 1-3 months 86%,
+    // 4-6 months 72%, 7-12 months 62% (clients usually renew late, and a recent end is more likely a renewal in progress).
+    { name: "Contract ended 1-3 months before", ended: true, endedMaxMonths: 3, weight: 0.85 },
+    { name: "Contract ended 4-6 months before", ended: true, endedMaxMonths: 6, weight: 0.70 },
+    { name: "Contract ended 7+ months before",  ended: true,                    weight: 0.60 },
     { name: "Red rating, no cohort",            rating: "red",       weight: 0.55 },
     { name: "iHuman, no cohort",                group: "IHUMAN",     weight: 0.85 },
     { name: "No OTC contract data",             noContract: true,     weight: 0.90 },
