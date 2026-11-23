@@ -1259,4 +1259,19 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const hybrid = run("0014u000025SPLIT003", "Student Pay (N620/622) & Institution Pay (N632/634), Pay as you go, Single Term");
   assert.ok(hybrid.lines.every((l) => l.flags.some((f) => f.indexOf("FYI:") === 0)));
 })();
+// 70. Composition tables stay exact for combined (Med / Allied / iHP) lines: no composite "a; b" weight-basis rows, and totals equal the line totals
+(function () {
+  const M = (name, amt, extra) => tab(Object.assign({ "FULL ID": "0014u000025COMP00001", "Product Group": "MED COURSE", "Product Name": name, "Baseline Amount - Tableau": String(amt),
+    "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }, extra || {}));
+  const r = E.FY27_buildForecast({ tableau: [M("Step 1 Live Online", 25000), M("Installment Plan", 500)], otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const segs = Object.keys(r.stats.composition.bySegment);
+  assert.ok(segs.every((s) => s.indexOf(";") < 0), segs.join(" | "));
+  const sumFull = (t) => Object.keys(t).reduce((s, k) => s + t[k].full, 0);
+  const sumW = (t) => Object.keys(t).reduce((s, k) => s + t[k].weighted, 0);
+  const lineFull = r.lines.reduce((s, l) => s + l.forecastAmount, 0), lineW = r.lines.reduce((s, l) => s + l.weightedAmount, 0);
+  [r.stats.composition.byCategory, r.stats.composition.bySegment, r.stats.composition.bySource].forEach((tbl) => {
+    assert.ok(Math.abs(sumFull(tbl) - lineFull) < 0.05, "full totals match");
+    assert.ok(Math.abs(sumW(tbl) - lineW) < 0.05, "weighted totals match");
+  });
+})();
 console.log("all engine tests passed");

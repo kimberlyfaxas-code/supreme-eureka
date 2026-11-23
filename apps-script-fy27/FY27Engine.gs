@@ -1372,11 +1372,19 @@ function FY27_buildForecast(input, cfg) {
       detailLines: detail.length,
       composition: (function () {
         const out = { byCategory: {}, bySource: {}, bySegment: {} };
+        const add = function (table, key, n, full, weighted) {
+          const x = out[table][key] || (out[table][key] = { n: 0, full: 0, weighted: 0 });
+          x.n += n; x.full += full; x.weighted += weighted;
+        };
         lines.forEach(function (L) {
-          [["byCategory", L.expectation || "(none)"], ["bySource", L.forecastSource || "(none)"], ["bySegment", L.segment || "(cohort-backed or Tableau line)"]].forEach(function (p) {
-            const x = out[p[0]][p[1]] || (out[p[0]][p[1]] = { n: 0, full: 0, weighted: 0 });
-            x.n++; x.full += L.forecastAmount; x.weighted += L.weightedAmount;
-          });
+          add("bySource", L.forecastSource || "(none)", 1, L.forecastAmount, L.weightedAmount);
+          // a combined line (several products / categories) is split back into its parts, scaled to the line's final amount (a CSM amount change keeps the proportions)
+          const k = L.partsFull > 0 ? L.forecastAmount / L.partsFull : 1;
+          const unchanged = L.calc && L.calc.category === L.expectation;
+          if (L.catParts && L.catParts.length > 1 && unchanged) L.catParts.forEach(function (c) { add("byCategory", c.key, 1, c.full * k, c.weighted * k); });
+          else add("byCategory", L.expectation || "(none)", 1, L.forecastAmount, L.weightedAmount);
+          if (L.segParts && L.segParts.length > 1) L.segParts.forEach(function (c) { add("bySegment", c.key, 1, c.full * k, c.weighted * k); });
+          else add("bySegment", L.segment || "(cohort-backed or Tableau line)", 1, L.forecastAmount, L.weightedAmount);
         });
         return out;
       })(),
@@ -1577,6 +1585,19 @@ function FY27_mergeLines_(parts, makeLine) {
   L.flags = flags;
   L.forecastQuarter = first.forecastQuarter;
   L.detailCount = parts.length;
+  // what each part contributed, so the composition tables (by category / weight basis) can still be exact for a combined line
+  const partsBy = function (field, fallback) {
+    const m = {};
+    parts.forEach(function (p) {
+      const k = p[field] || fallback;
+      const x = m[k] || (m[k] = { key: k, full: 0, weighted: 0 });
+      x.full += Number(p.forecastAmount) || 0; x.weighted += Number(p.weightedAmount) || 0;
+    });
+    return Object.keys(m).map(function (k) { return m[k]; });
+  };
+  L.catParts = partsBy("expectation", "(none)");
+  L.segParts = partsBy("segment", "(cohort-backed or Tableau line)");
+  L.partsFull = FY27_round2_(parts.reduce(function (t, p) { return t + (Number(p.forecastAmount) || 0); }, 0));
   return L;
 }
 
