@@ -107,13 +107,15 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
+    const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -228,6 +230,9 @@ function FY27_writeReview_(ss, result, retention) {
   const manRes = s.manualResults || [];
   const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
   add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
+  const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
+  add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
+  add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);

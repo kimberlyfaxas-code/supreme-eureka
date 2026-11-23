@@ -127,6 +127,17 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Link to the current 2026 Nov/Dec forecast
+Paste the current 2026 forecast (same columns as the 2026 forecast file) into the tab `FY26Nov_DecForecast` (`SHEETS.CARRY`); the tab is optional.
+- **Booked early** (`EARLY_BOOKED_TREATMENT = "prior_year"`): while "now" is before 2027, a 2027 cohort whose OTC order is already booked is a
+  2026 booking (the 2026 forecast counts it as Captured). It stays on its baseline row (the baseline month is still in 2027) with forecast $0,
+  Not Expected, reason `Booked in 2026`; the Review tab shows how many lines / dollars moved. The rule switches itself off once the year starts.
+  Set `"keep"` to count them in 2027 instead.
+- **Pushed out**: open 2026 lines whose Forecast Month has been moved into 2027 on that tab are carried in (source `2026 Carry-In`, category mapped
+  Expected / At Risk / Pending Contract). If the same account + product group already has an OTC-only unconfirmed line within the match window, the pushed
+  line replaces it (no double count); if a baseline-driven line sits nearby the new line is flagged `CHECK`.
+- **Still dated Nov/Dec and open**: not counted unless `CARRY_OPEN_SLIP_RATE` > 0 (share assumed to slip into `CARRY_OPEN_SLIP_MONTH`); the Review tab shows the open value so the rate can be chosen.
+
 ## Backtest against the 2026 forecast
 **FY27 Forecast > Backtest against 2026 forecast** runs the same engine on the 2025 baseline (`2026 Beginning Forecast Reference`)
 and compares it, per Student Org ID + product group + 2026 baseline month, with the final 2026 forecast (`2026 Forecast Reference`).

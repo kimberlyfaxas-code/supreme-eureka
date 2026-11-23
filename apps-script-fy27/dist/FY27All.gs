@@ -14,6 +14,7 @@ const FY27_CFG = {
   // Input tabs. OTC / Salesforce tabs get re-pasted with new names every refresh,
   // so they are found by prefix (first match in tab order wins; exact name tried first).
   SHEETS: {
+    CARRY: "FY26Nov_DecForecast",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",
@@ -76,7 +77,18 @@ const FY27_CFG = {
   //  Tableau    = line is tied to a Tableau baseline row (amount may be refined by OTC cohort data)
   //  OTC        = OTC cohort with NO Tableau baseline line (account is in Tableau, this cohort is not)
   //  Manual Add On = reserved for the manual add-on feature (not built yet)
-  SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On" },
+  // ---- Link to the current prior-year (2026) forecast -------------------------------------------------------------
+  // Paste the current Nov/Dec 2026 forecast into the tab below (same columns as the 2026 forecast file). Optional: if the tab is missing nothing changes.
+  // "prior_year": a cohort for the forecast year that is already booked while "now" is still before the forecast year is credited to the year it was
+  //   signed (it shows as Captured in the 2026 forecast): $0 here, baseline kept, reason "Booked in 2026". Switches itself off once the forecast year starts.
+  // "keep": count it in the forecast year as Captured.
+  EARLY_BOOKED_TREATMENT: "prior_year",
+  // Open prior-year lines still dated Nov/Dec: share assumed to slip into CARRY_OPEN_SLIP_MONTH of the forecast year (0 = none; CSMs push lines explicitly
+  // by setting the Forecast Month on the 2026 tab). Lines already moved into the forecast year are always carried in.
+  CARRY_OPEN_SLIP_RATE: 0,
+  CARRY_OPEN_SLIP_MONTH: 1,
+
+  SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On", CARRY: "2026 Carry-In" },
 
   // Adjustments (extra / dropped students) are small. A line larger than this (positive or negative) is
   // treated as a real booking that is already part of the baseline total, so it is never DERIVED as a
@@ -159,7 +171,8 @@ const FY27_CFG = {
   // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
   // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).
   CATEGORIES: ["Captured", "Expected", "At Risk", "Pending Contract", "Not Expected"],
-  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error"],
+  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error", "Booked in 2026"],
+  EARLY_BOOKED_REASON: "Booked in 2026",
   ROSTER_STAGES: ["Not started", "In progress", "Received - held", "Submitted", "Not needed"],
 
   // Additional predicted cohorts. If OTC expects more cohorts in a term than the same account + product actually booked last year
@@ -1092,6 +1105,26 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
   });
 
+  /* ---- 2a. Booked early: a cohort for the forecast year that was already booked while it is still the year before ----
+   * The team credits a booking to the month it is signed, so an order that is already booked in the year before the forecast year is a
+   * prior-year booking (it shows as Captured in that year's forecast). It stays on its baseline line - the baseline slot is still in the
+   * forecast year - but carries $0 here so it is not counted twice. Only while "now" is before the forecast year: once the year has
+   * started, booked orders are real bookings of the year and this rule switches itself off. */
+  const earlyBooked = { lines: 0, value: 0, active: false };
+  if (cfg.EARLY_BOOKED_TREATMENT === "prior_year" && now.getFullYear() < year) {
+    earlyBooked.active = true;
+    lines.forEach(function (L) {
+      if (L.isManual || L.expectation !== "Captured" || !(L.forecastAmount > 0)) return;
+      if (FY27_yearOf_(L.forecastMonth) !== year) return;
+      earlyBooked.lines++; earlyBooked.value += L.forecastAmount;
+      L.flags.push("Booked early: $" + Math.round(L.forecastAmount).toLocaleString() + " was signed in " + (year - 1) + " and counts in " + (year - 1) + " bookings, so $0 here (baseline stays)");
+      L.earlyAmount = L.forecastAmount;
+      L.forecastAmount = 0; L.valueIfBooked = L.valueIfBooked || L.earlyAmount;
+      L.expectation = "Not Expected"; L.reason = cfg.EARLY_BOOKED_REASON; L.stage = ""; L.weightOverride = undefined;
+    });
+    earlyBooked.value = FY27_round2_(earlyBooked.value);
+  }
+
   /* ---- 2b. Manual add-ons (the "Manual Add-Ons" tab): lines the data does not know about ---- */
   const manualResults = [];
   const firstBaseByFull = {}, firstBaseByBilling = {}, sfByOrg = {};
@@ -1148,6 +1181,80 @@ function FY27_buildForecast(input, cfg) {
     lines.push(M);
     manualResults.push({ row: r.__row, status: (b0 || sf0) ? "Added" : "Added (ID not found in the data - check it)" });
   });
+
+  /* ---- 2c. Link to the current prior-year forecast (the Nov/Dec tab) ----
+   * Open lines whose forecast month the CSMs have already pushed into the forecast year are carried in. A pushed line replaces an
+   * unconfirmed OTC-only line for the same account and group within the match window (so it is not counted twice); otherwise it is added.
+   * Lines still dated in the prior year and not booked are only counted as carry-in at CARRY_OPEN_SLIP_RATE (the share expected to slip). */
+  const carryStats = { rows: 0, pushedLines: 0, pushedValue: 0, replaced: 0, added: 0, openLines: 0, openValue: 0, slipLines: 0, slipValue: 0, skipped: 0, duplicateWarnings: 0 };
+  (input.carry || []).forEach(function (r) {
+    const catRaw = FY27_str_(FY27_pick_(r, ["Forecast Category"]));
+    const catLc = catRaw.toLowerCase();
+    const amount = FY27_num_(FY27_pick_(r, ["Forecast Amount"]));
+    const month = FY27_monthKey_(FY27_pick_(r, ["Forecast Month"]));
+    if (!month || !(amount > 0)) return;
+    carryStats.rows++;
+    if (catLc.indexOf("captured") === 0 || catLc.indexOf("not expected") === 0) return;   // booked in the prior year, or not expected
+    const mapped = catLc.indexOf("risk") === 0 ? "At Risk" : catLc.indexOf("pending") === 0 ? "Pending Contract" : "Expected";
+    let useMonth = "", useAmount = amount, cat = mapped, why = "";
+    if (FY27_yearOf_(month) === year) {
+      useMonth = month; why = "Pushed from the " + (year - 1) + " forecast (was " + (FY27_monthKey_(FY27_pick_(r, ["Baseline Month"])) || "Nov/Dec " + (year - 1)) + ")";
+      carryStats.pushedLines++; carryStats.pushedValue += amount;
+    } else if (FY27_yearOf_(month) === year - 1) {
+      carryStats.openLines++; carryStats.openValue += amount;
+      if (!(cfg.CARRY_OPEN_SLIP_RATE > 0)) return;
+      useMonth = year + "-" + FY27_pad2_(cfg.CARRY_OPEN_SLIP_MONTH || 1); useAmount = FY27_round2_(amount * cfg.CARRY_OPEN_SLIP_RATE); cat = "At Risk";
+      why = "Open " + (year - 1) + " line (" + month + ") assumed " + Math.round(cfg.CARRY_OPEN_SLIP_RATE * 100) + "% to slip into " + useMonth;
+      carryStats.slipLines++; carryStats.slipValue += useAmount;
+    } else return;
+    const id15 = FY27_id15_(FY27_pick_(r, ["Account Full ID", "Full ID"]));
+    const group = FY27_str_(FY27_pick_(r, ["Product Group"]));
+    const note = FY27_str_(FY27_pick_(r, ["Latest Comment"])).replace(/\s+/g, " ").slice(0, 140);
+    // an OTC-only, unconfirmed line for the same account and group is the same cohort: upgrade it instead of adding a second line
+    let twin = null;
+    lines.forEach(function (L) {
+      if (twin || L.isManual || L.status !== "Forecast" || L.baselineAmount > 0 || L.carryUsed) return;
+      if (FY27_id15_(L.fullId) !== id15 || L.productGroup !== group) return;
+      if (Math.abs(FY27_monthDiff_(L.forecastMonth, useMonth)) > cfg.MATCH_TOLERANCE_MONTHS) return;
+      twin = L;
+    });
+    if (twin) {
+      twin.carryUsed = true;
+      twin.forecastAmount = useAmount; twin.valueIfBooked = useAmount; twin.expectation = cat; twin.weightOverride = undefined;
+      twin.segment = "Pushed from " + (year - 1); twin.reason = ""; if (!twin.stage || twin.stage === "") twin.stage = "Not started";
+      twin.flags.push(why + (note ? " - " + note : "") + " (replaces the OTC-only estimate)");
+      carryStats.replaced++;
+      return;
+    }
+    const b0 = firstBaseByFull[id15] || firstBaseByBilling[FY27_str_(FY27_pick_(r, ["Student Org ID"]))] || null;
+    const sf0 = sfById[id15] || sfByOrg[FY27_str_(FY27_pick_(r, ["Student Org ID"]))] || null;
+    let attrs = {};
+    if (b0) attrs = attrsFromBaseline(b0);
+    else if (sf0) attrs = {
+      accountNameWithOrg: FY27_str_(sf0["Account Name"]) + (sf0["Student Org Id"] ? " (" + sf0["Student Org Id"] + ")" : ""), studentOrgId: FY27_str_(sf0["Student Org Id"]),
+      accountName: FY27_str_(sf0["Account Name"]), fullId: FY27_str_(sf0["FULL ID"]), rating: FY27_str_(sf0["Rating"]), clientCategory: FY27_str_(sf0["Client Category"]),
+      csm: FY27_str_(sf0["Client Success Manager"]), parentAccount: FY27_str_(sf0["Parent Account"])
+    };
+    const C = makeLine(attrs);
+    C.baselineMonth = ""; C.bookingId = ""; C.priorBookingType = ""; C.nextBookingType = ""; C.adjustment = "FALSE";
+    if (!b0 && !sf0) C.fullId = id15;
+    if (!C.studentOrgId) C.studentOrgId = FY27_str_(FY27_pick_(r, ["Student Org ID"]));
+    if (!C.accountName) C.accountName = FY27_str_(FY27_pick_(r, ["Account Name"]));
+    if (!C.csm) C.csm = FY27_str_(FY27_pick_(r, ["Current CSM"]));
+    if (!C.rating) C.rating = FY27_str_(FY27_pick_(r, ["Health Rating"]));
+    C.productGroup = group; C.productName = FY27_str_(FY27_pick_(r, ["Product"]));
+    C.forecastSource = cfg.SOURCES.CARRY; C.forecastMonth = useMonth;
+    C.forecastAmount = useAmount; C.valueIfBooked = useAmount; C.expectation = cat; C.status = "Forecast";
+    C.bookingType = FY27_str_(FY27_pick_(r, ["Booking Type"])) || "Renewal"; C.stage = "Not started"; C.segment = "Pushed from " + (year - 1);
+    C.flags.push(why + (note ? " - " + note : ""));
+    const dup = lines.some(function (L) {
+      return !L.isManual && FY27_id15_(L.fullId) === id15 && L.productGroup === group && L.forecastAmount > 0 && Math.abs(FY27_monthDiff_(L.forecastMonth, useMonth)) <= cfg.MATCH_TOLERANCE_MONTHS;
+    });
+    if (dup) { C.flags.push("CHECK: this account/product group already has a forecast line within " + cfg.MATCH_TOLERANCE_MONTHS + " months - make sure it is not counted twice"); carryStats.duplicateWarnings++; }
+    lines.push(C);
+    carryStats.added++;
+  });
+  carryStats.pushedValue = FY27_round2_(carryStats.pushedValue); carryStats.openValue = FY27_round2_(carryStats.openValue); carryStats.slipValue = FY27_round2_(carryStats.slipValue);
 
   /* ---- 3. Group detail lines: one row per account x billing org x product group x month x credit x status ---- */
   if (!cfg.TAG_CREDIT) lines.forEach(function (d) { d.credit = ""; d.creditBasis = ""; });
@@ -1283,6 +1390,8 @@ function FY27_buildForecast(input, cfg) {
         return out;
       })(),
       ignoredRosterChasing: ignoredRoster,
+      earlyBooked: earlyBooked,
+      carry: carryStats,
       derivedAdjustments: derivedAdj,
       likelyAdjustments: likelyAdj,
       baseline: (function () {
@@ -1676,6 +1785,10 @@ function FY27_readmeLines_(cfg) {
     ["TIMING vs BASELINE"],
     ["Early / On time / Late is worked out for you from the forecast month. To move a month, use SET: Month."],
     [""],
+    ["THE 2026 NOV/DEC LINK"],
+    ["Booked early: a " + cfg.FORECAST_YEAR + " cohort that is already booked now counts in " + (cfg.FORECAST_YEAR - 1) + " bookings. It stays on its baseline row but shows Not Expected, reason 'Booked in " + (cfg.FORECAST_YEAR - 1) + "', $0."],
+    ["Pushed out: an open " + (cfg.FORECAST_YEAR - 1) + " Nov/Dec line moves into " + cfg.FORECAST_YEAR + " when its Forecast Month is changed to " + cfg.FORECAST_YEAR + " on the '" + cfg.SHEETS.CARRY + "' tab (source '" + cfg.SOURCES.CARRY + "')."],
+    [""],
     ["REFRESH"],
     ["The file is rebuilt when new Tableau / OTC / Salesforce data is pasted in (menu: FY27 Forecast > Build / refresh forecast). Your yellow-cell changes are re-applied each time."],
     ["If a line changes so much in a refresh that your change cannot be matched, the 'Saved?' column on the CSM tab shows 'Not applied' (and the Overrides tab says NOT FOUND) - re-enter it on that line."],
@@ -1815,13 +1928,15 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
+    const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -1936,6 +2051,9 @@ function FY27_writeReview_(ss, result, retention) {
   const manRes = s.manualResults || [];
   const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
   add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
+  const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
+  add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
+  add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);

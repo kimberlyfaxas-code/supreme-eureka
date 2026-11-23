@@ -11,6 +11,7 @@ CFG.TAG_CREDIT = true;
 CFG.AMOUNT_BASIS = "otc";   // legacy amount tests; "min" / "baseline" are tested in 37-38
 CFG.USE_ADJUSTMENTS_TAB = true;   // engine tests feed the Adjustments tab in explicitly   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
+CFG.EARLY_BOOKED_TREATMENT = "keep";   // legacy tests count booked cohorts as Captured; see tests 55-57 for the prior-year rule
 
 const tab = (o) => Object.assign({
   "Account Name with Billing ID": "", "Billing ID": "001X", "Account Name": "", "Sales Rep": "", "Customer Type": "Institutional",
@@ -945,4 +946,81 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const c = E.FY27_buildForecast({ tableau: t, otc: [], salesforce: [], overrides: [{ "Line Key": key, "Comment": "called CSM" }], adjustments: [], now: new Date(2026, 10, 18) }, CFG);
   assert.ok(c.lines[0].flags.some((f) => /Note: called CSM/.test(f))); assert.strictEqual(c.stats.overridesApplied, 0);
 }
+
+
+// 55. Booked early: a forecast-year cohort already booked while still the prior year is credited to the prior year ($0, baseline kept)
+(function () {
+  CFG.EARLY_BOOKED_TREATMENT = "prior_year";
+  const base = [tab({ "FULL ID": "0014u000025EARLY0", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "1000" })];
+  const mk = (booked, now) => E.FY27_buildForecast({ tableau: base, otc: [otc({ "Full ID": "0014u000025EARLY0", "order_status": booked ? "Complete" : "Roster", "order_actual_start_date": booked ? "2027-02-01" : "" })],
+    salesforce: [], overrides: [], adjustments: [], now }, CFG);
+  const early = mk(true, new Date(2026, 10, 23));
+  const L = early.lines.filter((x) => x.forecastMonth === "2027-02")[0];
+  assert.strictEqual(L.expectation, "Not Expected");
+  assert.strictEqual(L.reason, "Booked in 2026");
+  assert.strictEqual(L.forecastAmount, 0);
+  assert.strictEqual(L.baselineAmount, 1000, "baseline stays in the forecast year");
+  assert.strictEqual(early.stats.earlyBooked.lines, 1);
+  assert.strictEqual(early.stats.earlyBooked.value, 1000);
+  assert.ok(L.flags.some((f) => f.indexOf("Booked early") === 0));
+  // not booked yet: unchanged
+  const open = mk(false, new Date(2026, 10, 23));
+  assert.strictEqual(open.lines.filter((x) => x.forecastMonth === "2027-02")[0].expectation, "Expected");
+  assert.strictEqual(open.stats.earlyBooked.lines, 0);
+  // once the forecast year has started the rule switches itself off: booked orders are real forecast-year bookings
+  const later = mk(true, new Date(2027, 1, 10));
+  assert.strictEqual(later.lines.filter((x) => x.forecastMonth === "2027-02")[0].expectation, "Captured");
+  assert.strictEqual(later.stats.earlyBooked.active, false);
+  CFG.EARLY_BOOKED_TREATMENT = "keep";
+})();
+
+// 56. Carry-in from the prior-year Nov/Dec forecast: pushed lines are added, captured / not expected are not, open lines only at the slip rate
+(function () {
+  const carryRow = (o) => Object.assign({ "Student Org ID": "001X", "Account Full ID": "0014u000025CARRY0", "Booking Type": "Renewal", "Health Rating": "Green", "Current CSM": "Pat",
+    "Account Name": "Carry U", "Product Group": "NURSING COURSE", "Product": "NCLEX RN Prep Select", "Baseline Month": "12/1/2026", "Forecast Month": "1/1/2027",
+    "Forecast Amount": "5,000.00", "Forecast Category": "Expected (Late)", "Latest Comment": "Roster promised for January" }, o);
+  const run = (carry) => E.FY27_buildForecast({ tableau: [], otc: [], salesforce: [], overrides: [], adjustments: [], carry, now: new Date(2026, 10, 23) }, CFG);
+  const r = run([
+    carryRow({}),                                                                   // pushed into 2027 -> added
+    carryRow({ "Forecast Month": "12/1/2026", "Forecast Amount": "2,000", "Forecast Category": "Risk (On time)" }),      // open, still Dec -> not counted at slip rate 0
+    carryRow({ "Forecast Month": "11/1/2026", "Forecast Category": "Captured - On Time" }),                                // booked in 2026 -> ignored
+    carryRow({ "Forecast Month": "2/1/2027", "Forecast Category": "Not expected (Lost)" })                                // not expected -> ignored
+  ]);
+  assert.strictEqual(r.lines.length, 1);
+  const C = r.lines[0];
+  assert.strictEqual(C.forecastSource, "2026 Carry-In");
+  assert.strictEqual(C.forecastMonth, "2027-01");
+  assert.strictEqual(C.forecastAmount, 5000);
+  assert.strictEqual(C.expectation, "Expected");
+  assert.strictEqual(C.csm, "Pat");
+  assert.ok(C.flags[0].indexOf("Pushed from the 2026 forecast") === 0);
+  assert.strictEqual(r.stats.carry.pushedLines, 1);
+  assert.strictEqual(r.stats.carry.openLines, 1);
+  assert.strictEqual(r.stats.carry.openValue, 2000);
+  assert.strictEqual(r.stats.carry.added, 1);
+  // slip rate: open lines carried into January at At Risk
+  CFG.CARRY_OPEN_SLIP_RATE = 0.5;
+  const s = run([carryRow({ "Forecast Month": "12/1/2026", "Forecast Amount": "2,000", "Forecast Category": "Risk (On time)" })]);
+  CFG.CARRY_OPEN_SLIP_RATE = 0;
+  assert.strictEqual(s.lines.length, 1);
+  assert.strictEqual(s.lines[0].forecastAmount, 1000);
+  assert.strictEqual(s.lines[0].forecastMonth, "2027-01");
+  assert.strictEqual(s.lines[0].expectation, "At Risk");
+  assert.strictEqual(run([]).stats.carry.rows, 0, "no tab = no change");
+})();
+
+// 57. A pushed line replaces the OTC-only estimate for the same account and group (no double count); a nearby baseline line is flagged
+(function () {
+  const carryRow = { "Student Org ID": "001X", "Account Full ID": "0014u000025TWIN00", "Product Group": "NURSING COURSE", "Product": "NCLEX RN", "Baseline Month": "12/1/2026",
+    "Forecast Month": "1/1/2027", "Forecast Amount": "4,000", "Forecast Category": "Risk (Late)", "Current CSM": "Pat", "Account Name": "Twin U" };
+  const baseTab = tab({ "FULL ID": "0014u000025TWIN00", "Baseline Booking Month - Tableau": "6/1/2026", "Forecast Month - Tableau": "6/1/2027", "Baseline Amount - Tableau": "9000" });
+  const r = E.FY27_buildForecast({ tableau: [baseTab], otc: [otc({ "Full ID": "0014u000025TWIN00", "order_estimated_start_date": "2027-01-01", "cohort_name": "RN Jan 27", "Estimated or Actual Order Total": "7000" })],
+    salesforce: [], overrides: [], adjustments: [], carry: [carryRow], now: new Date(2026, 10, 23) }, CFG);
+  const jan = r.lines.filter((x) => x.forecastMonth === "2027-01");
+  assert.strictEqual(jan.length, 1, "pushed line and OTC-only estimate are one line");
+  assert.strictEqual(jan[0].forecastAmount, 4000);
+  assert.strictEqual(jan[0].expectation, "At Risk");
+  assert.ok(jan[0].flags.some((f) => f.indexOf("replaces the OTC-only estimate") >= 0));
+  assert.strictEqual(r.stats.carry.replaced + r.stats.carry.added, 1);
+})();
 console.log("all engine tests passed");

@@ -9,6 +9,7 @@ const FY27_CFG = {
   // Input tabs. OTC / Salesforce tabs get re-pasted with new names every refresh,
   // so they are found by prefix (first match in tab order wins; exact name tried first).
   SHEETS: {
+    CARRY: "FY26Nov_DecForecast",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",
@@ -71,7 +72,18 @@ const FY27_CFG = {
   //  Tableau    = line is tied to a Tableau baseline row (amount may be refined by OTC cohort data)
   //  OTC        = OTC cohort with NO Tableau baseline line (account is in Tableau, this cohort is not)
   //  Manual Add On = reserved for the manual add-on feature (not built yet)
-  SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On" },
+  // ---- Link to the current prior-year (2026) forecast -------------------------------------------------------------
+  // Paste the current Nov/Dec 2026 forecast into the tab below (same columns as the 2026 forecast file). Optional: if the tab is missing nothing changes.
+  // "prior_year": a cohort for the forecast year that is already booked while "now" is still before the forecast year is credited to the year it was
+  //   signed (it shows as Captured in the 2026 forecast): $0 here, baseline kept, reason "Booked in 2026". Switches itself off once the forecast year starts.
+  // "keep": count it in the forecast year as Captured.
+  EARLY_BOOKED_TREATMENT: "prior_year",
+  // Open prior-year lines still dated Nov/Dec: share assumed to slip into CARRY_OPEN_SLIP_MONTH of the forecast year (0 = none; CSMs push lines explicitly
+  // by setting the Forecast Month on the 2026 tab). Lines already moved into the forecast year are always carried in.
+  CARRY_OPEN_SLIP_RATE: 0,
+  CARRY_OPEN_SLIP_MONTH: 1,
+
+  SOURCES: { TABLEAU: "Tableau", OTC: "OTC", MANUAL: "Manual Add On", CARRY: "2026 Carry-In" },
 
   // Adjustments (extra / dropped students) are small. A line larger than this (positive or negative) is
   // treated as a real booking that is already part of the baseline total, so it is never DERIVED as a
@@ -154,7 +166,8 @@ const FY27_CFG = {
   // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
   // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).
   CATEGORIES: ["Captured", "Expected", "At Risk", "Pending Contract", "Not Expected"],
-  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error"],
+  NOT_EXPECTED_REASONS: ["Lost", "No Revenue This Term", "Non-Recurring", "Adjustment", "Data Error", "Booked in 2026"],
+  EARLY_BOOKED_REASON: "Booked in 2026",
   ROSTER_STAGES: ["Not started", "In progress", "Received - held", "Submitted", "Not needed"],
 
   // Additional predicted cohorts. If OTC expects more cohorts in a term than the same account + product actually booked last year
