@@ -18,7 +18,7 @@ function makeSheet(name) {
       return this;
     },
     setNumberFormat() { return this; }, setFontWeight() { return this; }, setFontSize() { return this; }, setWrap() { return this; }, setNote() { return this; },
-    setBackground() { return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; }, clearFormat() { return this; },
+    setBackground() { return this; }, clearDataValidations() { sh.validationsCleared = (sh.validationsCleared || 0) + 1; return this; }, clearNote() { sh.notesCleared = (sh.notesCleared || 0) + 1; return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; }, clearFormat() { return this; },
     setValue(v) { sh.cells[r + "," + c] = v; return this; }, clearContent() { return this; },
     createFilter() { sh.filterCreated = true; return this; },
     protect() { const p = { setDescription() { return p; }, setWarningOnly() { return p; } }; sh.protections.push(p); return p; },
@@ -82,6 +82,7 @@ assert.strictEqual(mg.cells["2,4"], "Applied: 3 rows now count as X");
 api.FY27_ensureReadMe_();
 api.FY27_writeCsmSheet_(ss, res.lines, [], res.stats.overrideStatus);
 const csm = sheets[CFG.SHEETS.CSM];
+assert.ok(csm.validationsCleared >= 1 && csm.notesCleared >= 1, "stale dropdowns and notes from an older layout are cleared before writing");
 assert.ok(csm.filterCreated, "CSM tab has a filter");
 assert.strictEqual(csm.frozenCols, 2);
 assert.ok(csm.cfRules && csm.cfRules.length === 9, "5 changed-cell rules + 4 category colour rules");

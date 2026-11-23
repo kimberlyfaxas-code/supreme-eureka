@@ -2114,8 +2114,15 @@ function FY27_mustFind_(ss, exact, prefix, label) {
 /* ---------------- writers ---------------- */
 
 /** Belt and braces: wipe formats on the whole grid (stale date / currency formats from older layouts were surviving a rebuild). */
+/**
+ * clear() leaves data validation rules and cell notes behind, so a column that moved between versions keeps the old dropdown (and rejects the new text).
+ * Remove formats, validation rules and notes from the whole grid before a tab is rewritten.
+ */
 function FY27_resetFormats_(sh) {
-  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).clearFormat();
+  const all = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  all.clearFormat();
+  all.clearDataValidations();
+  all.clearNote();
 }
 
 function FY27_monthToDate_(key) {
