@@ -1160,4 +1160,25 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.coverage.reduce((s, c) => s + c.early, 0), r.stats.earlyBooked.value);
   CFG.EARLY_BOOKED_TREATMENT = "keep";
 })();
+// 65. A CSM change of category/amount on a "booked early" line removes the booked-early credit (the line did not book early)
+(function () {
+  CFG.EARLY_BOOKED_TREATMENT = "prior_year";
+  const T = [tab({ "FULL ID": "0014u000025WGU00001", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "1000" })];
+  const O = [otc({ "Full ID": "0014u000025WGU00001", "order_status": "Complete", "order_actual_start_date": "2027-02-01" })];
+  const run = (ov) => E.FY27_buildForecast({ tableau: T, otc: O, salesforce: [], overrides: ov || [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const r = run();
+  const L = r.lines.find((x) => x.forecastMonth === "2027-02");
+  assert.strictEqual(L.earlyAmount, 1000);
+  const r2 = run([{ "Line Key": L.key, "Forecast Category": "Not Expected", "Not Expected Reason": "Non-Recurring" }]);
+  const L2 = r2.lines.find((x) => x.forecastMonth === "2027-02");
+  assert.strictEqual(L2.earlyAmount, 0);
+  assert.strictEqual(L2.reason, "Non-Recurring");
+  assert.strictEqual(r2.stats.earlyBooked.value, 0);
+  assert.strictEqual(r2.stats.earlyBooked.lines, 0);
+  assert.strictEqual(r2.coverage.find((c) => c.month === "2027-02").early, 0);
+  // a comment alone does not remove it
+  const r3 = run([{ "Line Key": L.key, "Comment": "check" }]);
+  assert.strictEqual(r3.lines.find((x) => x.forecastMonth === "2027-02").earlyAmount, 1000);
+  CFG.EARLY_BOOKED_TREATMENT = "keep";
+})();
 console.log("all engine tests passed");

@@ -1473,6 +1473,11 @@ function FY27_buildForecast(input, cfg) {
       return;
     }
     overridesApplied++;
+    // a CSM who sets the category or amount of a line we zeroed as "booked early" is saying it did not book early: take the booked-early credit off it
+    if (L.earlyAmount > 0 && (cat || amt !== "" || exclude)) {
+      L.flags.push("Booked-early credit ($" + Math.round(L.earlyAmount).toLocaleString() + ") removed by CSM change");
+      L.earlyAmount = 0;
+    }
     if (cat) {
       L.expectation = cat;
       const w = cfg.WEIGHTS && cfg.WEIGHTS[cat];
@@ -1494,6 +1499,10 @@ function FY27_buildForecast(input, cfg) {
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
   lines = grouped;
+  if (earlyBooked.active) {      // overrides may have removed some early credit
+    earlyBooked.lines = lines.filter(function (L) { return L.earlyAmount > 0; }).length;
+    earlyBooked.value = FY27_round2_(lines.reduce(function (t, L) { return t + (L.earlyAmount || 0); }, 0));
+  }
   lines.forEach(function (L) {
     if (L.expectation === "Not Expected") L.stage = L.stage && L.stage !== "Not started" && L.stage !== "Not needed" ? L.stage : "";
     else L.reason = "";
