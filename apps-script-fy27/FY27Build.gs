@@ -109,6 +109,8 @@ function FY27_run() {
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
     const mergeSheet = FY27_ensureMergeSheet_();
     const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
+    const ihpSheet = FY27_ensureIhpSheet_();
+    const ihp = FY27_gridToRows_(ihpSheet.getDataRange().getValues());
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -117,7 +119,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, ihpActive: ihp.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -243,6 +245,9 @@ function FY27_writeReview_(ss, result, retention) {
   const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
   add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
   add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
+  const ih = s.ihpIgnored || {};
+  add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  (ih.top || []).forEach(function (t, i) { add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
@@ -438,6 +443,25 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- iHP Active Accounts tab ---------------- */
+
+/**
+ * Paste the maintained iHP account list here (the main tab of the iHP Account Database: keep its header row; it needs "Account", "Student Org Account ID"
+ * and "Business Org Account ID"). Once it has rows, iHP lines for accounts that are not on it are ignored completely. Empty = no filtering.
+ */
+function FY27_ensureIhpSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.IHP_ACTIVE);
+  if (!sh) {
+    sh = ss.insertSheet(FY27_CFG.SHEETS.IHP_ACTIVE);
+    sh.getRange(1, 1, 1, 3).setValues([["Account", "Student Org Account ID", "Business Org Account ID"]]);
+    sh.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#FFF2CC");
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1).setNote("Paste the active iHP account list here (the main tab of the iHP Account Database, header row included). Empty tab = no filtering. iHP lines for accounts not on this list are ignored.");
+  }
+  return sh;
 }
 
 /* ---------------- Account Merges tab ---------------- */

@@ -129,6 +129,20 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## New / dormant programs start at $0
+`DORMANT_PROGRAM_ACTION = "zero"` (default): a first-time OTC cohort (no cohort code) for an account + program (family) with no booking in the baseline
+year (never, or last booked earlier, e.g. 2024) is `Not Expected`, reason `No Revenue This Term`, **$0**, with the OTC value kept in `Value If Booked`
+and in the Why text. Typing a positive amount in `Forecast $` on such a line counts it as `Expected` at the next refresh (pick At Risk to weight it).
+Programs that book every two years or prepay are the exception: CSMs add the amount by typing it in. Coded cohorts (existing classes) are never dormant.
+`"weight"` restores the old behaviour (At Risk at `DORMANT_PROGRAM_WEIGHT`).
+
+## Active iHP accounts (`iHP Active Accounts` tab)
+Paste the maintained iHP account list (main tab of the iHP Account Database, with its header row; needs `Account`, `Student Org Account ID`,
+`Business Org Account ID`) into `iHP Active Accounts`. Once it has rows, any `IHP_ACTIVE_GROUPS` (IHUMAN) line, baseline-driven or OTC-only, whose Full ID /
+Student Org ID / account name is not on the list is dropped completely (not forecast, not shown). Other product groups of the same account, Manual Add-Ons
+and carry-ins are untouched. The Review tab shows how many lines and baseline $ were ignored and the ten largest accounts; the baseline check subtracts them.
+Empty tab = no filtering. The source database's `Lost 2024-2026` and `SP27 Renewal List` tabs are not used (names only / prospects).
+
 ## Combining accounts (`Account Merges` tab)
 One row per duplicate: `From ID` (the extra Billing ID / Full ID) and `Into ID` (the main account); either can be a Full ID or a Student Org ID.
 At the start of every refresh, every input (Tableau, Adjustments, OTC, Manual Add-Ons, the Nov/Dec tab) has the From ID rewritten to the Into account's

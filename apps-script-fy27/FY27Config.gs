@@ -11,6 +11,7 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    IHP_ACTIVE: "iHP Active Accounts",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",
@@ -58,7 +59,7 @@ const FY27_CFG = {
   //  "weight" = flag it, set it At Risk and weight it by DORMANT_PROGRAM_WEIGHT (a CSM decides)
   //  "zero"   = Not Expected, $0 (value kept in Value If Booked)
   // Cohorts that already have a code are existing classes and are never treated as dormant.
-  DORMANT_PROGRAM_ACTION: "weight",
+  DORMANT_PROGRAM_ACTION: "zero",
   DORMANT_PROGRAM_WEIGHT: 0.25,   // placeholder, not yet calibrated: the backtest compares baseline lines, not OTC-only cohorts
 
   // Accounts with no Tableau rows (no baseline-year bookings) are left out of the forecast.
@@ -81,6 +82,9 @@ const FY27_CFG = {
   EARLY_BOOKED_TREATMENT: "prior_year",
   // Open prior-year lines still dated Nov/Dec: share assumed to slip into CARRY_OPEN_SLIP_MONTH of the forecast year (0 = none; CSMs push lines explicitly
   // by setting the Forecast Month on the 2026 tab). Lines already moved into the forecast year are always carried in.
+  // iHP product group groups checked against the "iHP Active Accounts" tab (paste the maintained iHP account list there). When the tab has rows, an iHP line
+  // for an account that is not on it is ignored completely. No rows = no filtering.
+  IHP_ACTIVE_GROUPS: ["IHUMAN"],
   CARRY_OPEN_SLIP_RATE: 0,
   CARRY_OPEN_SLIP_MONTH: 1,
 

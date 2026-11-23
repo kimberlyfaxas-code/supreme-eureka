@@ -11,6 +11,7 @@ CFG.TAG_CREDIT = true;
 CFG.AMOUNT_BASIS = "otc";   // legacy amount tests; "min" / "baseline" are tested in 37-38
 CFG.USE_ADJUSTMENTS_TAB = true;   // engine tests feed the Adjustments tab in explicitly   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
+CFG.DORMANT_PROGRAM_ACTION = "weight";   // legacy tests; the shipped default is "zero" (test 61)
 CFG.EARLY_BOOKED_TREATMENT = "keep";   // legacy tests count booked cohorts as Captured; see tests 55-57 for the prior-year rule
 
 const tab = (o) => Object.assign({
@@ -1088,5 +1089,43 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const rec2 = E.FY27_overrideRecFromCsmRow_(hdr, row2);
   assert.strictEqual(rec2["Forecast Category"], "At Risk");
   assert.strictEqual(rec2["Override Amount"], 999);
+})();
+// 61. A first-time / dormant program starts at $0 (not a gettable amount); typing an amount counts it as Expected
+(function () {
+  CFG.DORMANT_PROGRAM_ACTION = "zero";
+  const T = [tab({ "FULL ID": "0014u000025DORM0001" })];
+  const O = [otc({ "Full ID": "0014u000025DORM0001", "Product Name": "NCLEX PN Enrichment", "program": "NCLEX PN", "order_estimated_start_date": "2027-08-01", "Estimated or Actual Order Total": "3000" })];
+  const run = (ov) => E.FY27_buildForecast({ tableau: T, otc: O, salesforce: [], overrides: ov || [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const r = run();
+  const L = r.lines.find((l) => l.productName === "NCLEX PN Enrichment");
+  assert.strictEqual(L.forecastAmount, 0);
+  assert.strictEqual(L.expectation, "Not Expected");
+  assert.strictEqual(L.weightedAmount, 0);
+  assert.strictEqual(L.valueIfBooked, 3000);
+  assert.ok(L.flags.some((f) => /forecast \$0 until confirmed/.test(f)), JSON.stringify(L.flags));
+  const r2 = run([{ "Line Key": L.key, "Override Amount": "2500" }]);
+  const L2 = r2.lines.find((l) => l.productName === "NCLEX PN Enrichment");
+  assert.strictEqual(L2.forecastAmount, 2500);
+  assert.strictEqual(L2.expectation, "Expected");
+  assert.strictEqual(L2.weightedAmount, 2500);
+  CFG.DORMANT_PROGRAM_ACTION = "weight";
+})();
+
+// 62. Active iHP list: iHP lines for accounts not on the list are ignored entirely; other groups, manual and carry lines are untouched; no list = no filtering
+(function () {
+  const IH = (id, org, extra) => tab(Object.assign({ "FULL ID": id, "Billing ID": org, "Account Name": "Acct " + id.slice(11, 14), "Product Group": "IHUMAN", "Product Name": "iHP Traditional & OSCE Cases", "Baseline Amount - Tableau": "5000" }, extra || {}));
+  const rows = [IH("0014u000025ONAAA001", "0013b00001ORGON1"), IH("0014u000025OFBBB001", "0013b00001ORGOFF"), IH("0014u000025OFBBB001", "0013b00001ORGOFF", { "Product Group": "NURSING COURSE", "Product Name": "Curriculum Plus" })];
+  const run = (active) => E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], ihpActive: active, now: new Date(2026, 10, 23) }, CFG);
+  assert.strictEqual(run([]).lines.length, 3, "no list = no filtering");
+  const r = run([{ "Account": "Acct ONA", "Student Org Account ID": "", "Business Org Account ID": "0014u000025ONAAA001" }]);
+  assert.strictEqual(r.lines.length, 2);
+  assert.ok(r.lines.some((l) => l.productGroup === "IHUMAN" && l.fullId.slice(0, 15) === "0014u000025ONAA"));
+  assert.ok(r.lines.some((l) => l.productGroup === "NURSING COURSE"), "non-iHP lines of an inactive iHP account stay");
+  assert.strictEqual(r.stats.ihpIgnored.lines, 1);
+  assert.strictEqual(r.stats.ihpIgnored.baseline, 5000);
+  assert.strictEqual(r.stats.ihpIgnored.top[0].account, "Acct OFB");
+  assert.strictEqual(r.stats.baseline.difference, 0, "ignored iHP baseline is accounted for in the baseline check");
+  // matched by Student Org ID or by name too
+  assert.strictEqual(run([{ "Account": "", "Student Org Account ID": "0013b00001ORGOFF", "Business Org Account ID": "" }, { "Account": "Acct ONA" }]).lines.length, 3);
 })();
 console.log("all engine tests passed");

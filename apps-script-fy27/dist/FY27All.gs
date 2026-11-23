@@ -16,6 +16,7 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    IHP_ACTIVE: "iHP Active Accounts",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",
@@ -63,7 +64,7 @@ const FY27_CFG = {
   //  "weight" = flag it, set it At Risk and weight it by DORMANT_PROGRAM_WEIGHT (a CSM decides)
   //  "zero"   = Not Expected, $0 (value kept in Value If Booked)
   // Cohorts that already have a code are existing classes and are never treated as dormant.
-  DORMANT_PROGRAM_ACTION: "weight",
+  DORMANT_PROGRAM_ACTION: "zero",
   DORMANT_PROGRAM_WEIGHT: 0.25,   // placeholder, not yet calibrated: the backtest compares baseline lines, not OTC-only cohorts
 
   // Accounts with no Tableau rows (no baseline-year bookings) are left out of the forecast.
@@ -86,6 +87,9 @@ const FY27_CFG = {
   EARLY_BOOKED_TREATMENT: "prior_year",
   // Open prior-year lines still dated Nov/Dec: share assumed to slip into CARRY_OPEN_SLIP_MONTH of the forecast year (0 = none; CSMs push lines explicitly
   // by setting the Forecast Month on the 2026 tab). Lines already moved into the forecast year are always carried in.
+  // iHP product group groups checked against the "iHP Active Accounts" tab (paste the maintained iHP account list there). When the tab has rows, an iHP line
+  // for an account that is not on it is ignored completely. No rows = no filtering.
+  IHP_ACTIVE_GROUPS: ["IHUMAN"],
   CARRY_OPEN_SLIP_RATE: 0,
   CARRY_OPEN_SLIP_MONTH: 1,
 
@@ -1184,10 +1188,12 @@ function FY27_buildForecast(input, cfg) {
       const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
       const noteBase = "No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "");
       if ((cfg.DORMANT_PROGRAM_ACTION || "weight") === "zero") {
+        L.valueIfBooked = L.forecastAmount;
         L.expectation = "Not Expected";
         L.reason = "No Revenue This Term";
+        L.segment = "Program not booked in " + (year - 1);
         L.forecastAmount = 0;
-        L.flags.push(noteBase + " - cohort in OTC not forecast. Override if the program is returning");
+        L.flags.push(noteBase + " - first-time cohort: $" + Math.round(L.valueIfBooked).toLocaleString() + " in OTC, forecast $0 until confirmed. If the program is returning, type the amount in Forecast $");
       } else {
         // flag and weight down; a CSM decides
         L.expectation = cfg.AT_RISK_CATEGORY;
@@ -1198,6 +1204,35 @@ function FY27_buildForecast(input, cfg) {
     }
     lines.push(L);
   });
+
+  /* ---- 2-. Active iHP accounts: the maintained iHP account list is the reference for the iHP product group ----
+   * When the "iHP Active Accounts" tab has rows, an iHP line (baseline-driven or OTC-only) whose account is not on that list is dropped entirely:
+   * it is not forecast, not shown, and not counted. Manual add-ons and carry-ins are never dropped. No rows = rule off. */
+  const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [] };
+  (function () {
+    const rowsIn = (input.ihpActive || []).filter(function (r) { return FY27_str_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_str_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])) || FY27_str_(r["Account"]); });
+    if (!rowsIn.length) return;
+    const ids = {}, names = {};
+    rowsIn.forEach(function (r) {
+      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])), s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_str_(r["Account"]).toLowerCase();
+      if (f) ids[f] = true; if (s) ids[s] = true; if (n) names[n] = true;
+    });
+    const groups = cfg.IHP_ACTIVE_GROUPS || [];
+    ihpIgnored.active = true;
+    ihpIgnored.activeAccounts = Object.keys(ids).length;
+    const byAcct = {};
+    const kept = [];
+    lines.forEach(function (L) {
+      if (groups.indexOf(L.productGroup) < 0 || ids[FY27_id15_(L.fullId)] || ids[FY27_id15_(L.studentOrgId)] || names[FY27_str_(L.accountName).toLowerCase()]) { kept.push(L); return; }
+      ihpIgnored.lines++; ihpIgnored.baseline += L.baselineAmount; ihpIgnored.forecast += L.forecastAmount;
+      const k = L.accountName || L.fullId;
+      byAcct[k] = (byAcct[k] || 0) + L.baselineAmount;
+    });
+    lines = kept;
+    ihpIgnored.accounts = Object.keys(byAcct).length;
+    ihpIgnored.baseline = FY27_round2_(ihpIgnored.baseline); ihpIgnored.forecast = FY27_round2_(ihpIgnored.forecast);
+    ihpIgnored.top = Object.keys(byAcct).sort(function (a, b) { return byAcct[b] - byAcct[a]; }).slice(0, 10).map(function (k) { return { account: k, baseline: FY27_round2_(byAcct[k]) }; });
+  })();
 
   /* ---- 2a. Booked early: a cohort for the forecast year that was already booked while it is still the year before ----
    * The team credits a booking to the month it is signed, so an order that is already booked in the year before the forecast year is a
@@ -1421,7 +1456,14 @@ function FY27_buildForecast(input, cfg) {
     if (reasonRaw) L.reason = reasonRaw;
     if (stageRaw) L.stage = stageRaw;
     if (exclude) { L.forecastAmount = 0; L.expectation = "Not Expected"; L.flags.push("Manual override: excluded"); }
-    if (amt !== "") { L.forecastAmount = FY27_num_(amt); L.flags.push("Manual override: amount"); }
+    if (amt !== "") {
+      L.forecastAmount = FY27_num_(amt); L.flags.push("Manual override: amount");
+      if (FY27_num_(amt) > 0 && L.expectation === "Not Expected" && !cat && !exclude) {
+        // typing an amount on a line that was $0 / not expected means the CSM expects it: count it as Expected (they can pick At Risk instead)
+        L.expectation = "Expected"; L.weight = cfg.WEIGHTS && cfg.WEIGHTS.Expected !== undefined ? cfg.WEIGHTS.Expected : 1; L.weightOverride = undefined; L.reason = "";
+        L.flags.push("Amount entered on a Not Expected line: counted as Expected");
+      }
+    }
     if (mo) { L.forecastMonth = mo; L.flags.push("Manual override: month"); }
     if (FY27_str_(ov["Comment"])) L.flags.push("Note: " + FY27_str_(ov["Comment"]));
   });
@@ -1486,6 +1528,7 @@ function FY27_buildForecast(input, cfg) {
       })(),
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
+      ihpIgnored: ihpIgnored,
       mergeResults: mergeApplied.results,
       carry: carryStats,
       derivedAdjustments: derivedAdj,
@@ -1495,7 +1538,7 @@ function FY27_buildForecast(input, cfg) {
         const tab = base.filter(function (b) { return !b.fromAdjTab; }).reduce(function (t, b) { return t + b.baseAmt; }, 0);
         const adjT = base.filter(function (b) { return b.fromAdjTab; }).reduce(function (t, b) { return t + b.baseAmt; }, 0);
         const inFc = detail.reduce(function (t, d) { return t + d.baselineAmount; }, 0);
-        return { tableau: r2(tab), adjustmentsTab: r2(adjT), inForecast: r2(inFc), difference: r2(tab + adjT - inFc) };
+        return { tableau: r2(tab), adjustmentsTab: r2(adjT), inForecast: r2(inFc), difference: r2(tab + adjT - inFc - ihpIgnored.baseline) };
       })(),
       excludedNotInTableau: { accounts: Object.keys(excluded.accounts).length, cohorts: excluded.cohorts, value: excluded.value },
       otcTargetRows: target.length,
@@ -1906,6 +1949,12 @@ function FY27_readmeLines_(cfg) {
     ["SAME ACCOUNT, TWO IDs (e.g. a separate Billing ID created just for one booking)"],
     ["Add a row on the '" + cfg.SHEETS.MERGES + "' tab: From ID = the duplicate, Into ID = the main account (either can be a Full ID or Student Org ID). After the next refresh both count as one account. The Status column confirms."],
     [""],
+    ["NEW OR DORMANT PROGRAMS START AT $0"],
+    ["A first-time cohort for a program the client has not booked since last year (or never) shows Not Expected with $0 and the OTC value in the Why column. If it is really coming, type the amount in Forecast $ and it counts as Expected."],
+    [""],
+    ["iHP ACCOUNTS"],
+    ["iHP lines for accounts that are not on the active iHP list (tab '" + cfg.SHEETS.IHP_ACTIVE + "') are ignored completely - they do not appear here. If a CSM expects one, add it on the '" + cfg.SHEETS.MANUAL + "' tab."],
+    [""],
     ["THE 2026 NOV/DEC LINK"],
     ["Booked early: a " + cfg.FORECAST_YEAR + " cohort that is already booked now counts in " + (cfg.FORECAST_YEAR - 1) + " bookings. It stays on its baseline row but shows Not Expected, reason 'Booked in " + (cfg.FORECAST_YEAR - 1) + "', $0."],
     ["Pushed out: an open " + (cfg.FORECAST_YEAR - 1) + " Nov/Dec line moves into " + cfg.FORECAST_YEAR + " when its Forecast Month is changed to " + cfg.FORECAST_YEAR + " on the '" + cfg.SHEETS.CARRY + "' tab (source '" + cfg.SOURCES.CARRY + "')."],
@@ -2051,6 +2100,8 @@ function FY27_run() {
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
     const mergeSheet = FY27_ensureMergeSheet_();
     const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
+    const ihpSheet = FY27_ensureIhpSheet_();
+    const ihp = FY27_gridToRows_(ihpSheet.getDataRange().getValues());
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -2059,7 +2110,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, ihpActive: ihp.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -2185,6 +2236,9 @@ function FY27_writeReview_(ss, result, retention) {
   const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
   add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
   add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
+  const ih = s.ihpIgnored || {};
+  add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  (ih.top || []).forEach(function (t, i) { add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
@@ -2380,6 +2434,25 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- iHP Active Accounts tab ---------------- */
+
+/**
+ * Paste the maintained iHP account list here (the main tab of the iHP Account Database: keep its header row; it needs "Account", "Student Org Account ID"
+ * and "Business Org Account ID"). Once it has rows, iHP lines for accounts that are not on it are ignored completely. Empty = no filtering.
+ */
+function FY27_ensureIhpSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.IHP_ACTIVE);
+  if (!sh) {
+    sh = ss.insertSheet(FY27_CFG.SHEETS.IHP_ACTIVE);
+    sh.getRange(1, 1, 1, 3).setValues([["Account", "Student Org Account ID", "Business Org Account ID"]]);
+    sh.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#FFF2CC");
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1).setNote("Paste the active iHP account list here (the main tab of the iHP Account Database, header row included). Empty tab = no filtering. iHP lines for accounts not on this list are ignored.");
+  }
+  return sh;
 }
 
 /* ---------------- Account Merges tab ---------------- */
