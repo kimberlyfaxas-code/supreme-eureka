@@ -1065,37 +1065,19 @@ function FY27_buildForecast(input, cfg) {
     earlyBooked.value = FY27_round2_(earlyBooked.value); earlyBooked.onlyValue = FY27_round2_(earlyBooked.onlyValue);
   }
 
-  /* ---- 2a2. Student-pay / hybrid iHP accounts: the booking lands over two months ----
-   * Students buy through the term, and the booking follows the month after the purchases, so an iHP cohort that has no baseline row (a baseline already carries
-   * its own monthly split) is spread over its month and the next. The payment method comes from the "Payment Method" column of the iHP list tab. */
+  /* ---- 2a2. Student-pay / hybrid iHP accounts: FYI only ----
+   * Students buy through the term and the booking follows the month after the purchases, so part of the value can land one month later (as it did last year).
+   * Nothing is split ahead of time: the forecast month and amount are untouched; the line just says so. The payment method comes from the "Payment Method"
+   * column of the iHP list tab. FYI notes are not added to the Review list. */
   const ihpSplit = { lines: 0, value: 0 };
-  (function () {
-    const shares = cfg.IHP_SPLIT_SHARES || [];
-    if (shares.length < 2 || !(cfg.IHP_SPLIT_PAYMENT || []).length) return;
-    const out = [];
-    lines.forEach(function (L) {
-      out.push(L);
-      if (L.isManual || cfg.IHP_ACTIVE_GROUPS.indexOf(L.productGroup) < 0 || L.status !== "Forecast" || L.baselineAmount > 0 || !(L.forecastAmount > 0) || L.expectation === "Not Expected") return;
-      const pm = ihpPay.ids[FY27_id15_(L.fullId)] || ihpPay.ids[FY27_id15_(L.studentOrgId)] || ihpPay.names[FY27_nameKey_(L.accountName)] || "";
-      if (!FY27_matchesAny_(pm, cfg.IHP_SPLIT_PAYMENT)) return;
-      const total = L.forecastAmount, totalV = L.valueIfBooked || 0;
-      const label = shares.map(function (s) { return Math.round(s * 100) + "%"; }).join(" / ");
-      L.flags.push("Student / bookstore pay (" + pm + "): books over " + shares.length + " months (" + label + ") - the month after the purchases");
-      let first = true;
-      shares.forEach(function (s, i) {
-        const month = FY27_addMonths_(L.forecastMonth, i);
-        if (FY27_yearOf_(month) !== year) { return; }                              // the part that books after year end is not this year's
-        const P = first ? L : makeLine(L);
-        first = false;
-        if (P !== L) { P.flags = L.flags.slice(); out.push(P); }
-        P.forecastMonth = month; P.forecastAmount = FY27_round2_(total * s); P.valueIfBooked = FY27_round2_(totalV * s);
-        P.estStudents = P === L ? L.estStudents : P.estStudents;
-      });
-      ihpSplit.lines++; ihpSplit.value += total;
-    });
-    lines = out;
-    ihpSplit.value = FY27_round2_(ihpSplit.value);
-  })();
+  lines.forEach(function (L) {
+    if (L.isManual || (cfg.IHP_ACTIVE_GROUPS || []).indexOf(L.productGroup) < 0) return;
+    const pm = ihpPay.ids[FY27_id15_(L.fullId)] || ihpPay.ids[FY27_id15_(L.studentOrgId)] || ihpPay.names[FY27_nameKey_(L.accountName)] || "";
+    if (!pm || !FY27_matchesAny_(pm, cfg.IHP_SPLIT_PAYMENT)) return;
+    L.flags.push("FYI: " + pm.split(",")[0] + " - bookings usually split over two months (the month after the purchases), so part of this value can land in the next month");
+    ihpSplit.lines++; ihpSplit.value += L.forecastAmount;
+  });
+  ihpSplit.value = FY27_round2_(ihpSplit.value);
 
   /* ---- 2b. Manual add-ons (the "Manual Add-Ons" tab): lines the data does not know about ---- */
   const manualResults = [];
@@ -1354,6 +1336,7 @@ function FY27_buildForecast(input, cfg) {
   const review = [];
   lines.forEach(function (L) {
     L.flags.forEach(function (f) {
+      if (f.indexOf("FYI:") === 0) return;      // information for the CSM on the line, not something to review
       review.push({
         severity: FY27_severity_(f), flag: f, account: L.accountName, fullId: L.fullId,
         productGroup: L.productGroup, productName: L.productName, forecastMonth: L.forecastMonth,

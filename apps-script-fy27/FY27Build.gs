@@ -255,7 +255,7 @@ function FY27_writeReview_(ss, result, retention) {
   fmt.push([r, 4, "#,##0"], [r, 6, "$#,##0"]);
   if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
   const sp = s.ihpSplit || {};
-  if (sp.lines) { r = add(["iHP student / bookstore-pay cohorts split over two months", sp.lines + " cohorts", "Total $", sp.value]); fmt.push([r, 4, "$#,##0"]); }
+  if (sp.lines) { r = add(["iHP student / bookstore-pay lines with an FYI note (bookings may land a month later)", sp.lines + " lines", "Value $", sp.value]); fmt.push([r, 4, "$#,##0"]); }
   (ih.top || []).forEach(function (t, i) { const tr = add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); fmt.push([tr, 4, "$#,##0"]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);

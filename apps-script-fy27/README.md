@@ -135,11 +135,10 @@ their OTC cohorts are booking type `Roster Chasing` (stage `Not started`) even w
 instead of `Rebooking (assumed)`. Consequences: gray / black accounts ignore their Prep Select OTC cohorts like any other roster chasing; the "program not booked" rule still
 treats a coded cohort as an existing class. Some Prep Select orders are a flat fee per term billed the month after the semester starts rather than a per-learner fee.
 
-## iHP student pay / hybrid: bookings split over two months
-Students buy through the term and the booking follows the month after the purchases, so for iHP accounts whose `Payment Method` (a column of the `iHP Active Accounts` tab; paste the whole list tab)
-contains `student pay`, `bookstore pay` or `hybrid` (`IHP_SPLIT_PAYMENT`), an iHP cohort with **no baseline row** is split over its month and the next by `IHP_SPLIT_SHARES` (50 / 50). A part that would book after
-the forecast year is left out. Baseline-driven lines are never split (the baseline already carries its own monthly split); booked and Not Expected lines are untouched. Both parts carry a flag and the
-Review tab counts them. `IHP_SPLIT_PAYMENT = []` turns it off.
+## iHP student pay / hybrid: FYI note only
+Students buy through the term and the booking follows the month after the purchases, so part of a value can land a month later (as it did in 2026). **Nothing is split ahead of time.**
+iHP lines of accounts whose `Payment Method` (a column of the `iHP Active Accounts` tab; paste the whole list tab) contains `student pay`, `bookstore pay` or `hybrid` (`IHP_SPLIT_PAYMENT`) carry an
+`FYI:` note in the Why column explaining it. FYI notes are not added to the Review flag list; the Review tab counts the lines.
 
 ## Med / Allied Health / iHP: one line per product group
 `COMBINE_GROUPS` (MED COURSE, ALLIED HEALTH COURSE, IHUMAN; separate from the flat-fee list `FLAT_FEE_GROUPS`, which iHP is not in) are booked per product group, so all products and categories of the group in a month are **one line**
