@@ -1780,16 +1780,16 @@ function FY27_team2026Retention_(rows) {
 
 /** Columns of the CSM tab: [header, line field, kind]. "SET:" columns and Comment are the CSM's inputs (stored on the Overrides tab). */
 const FY27_CSM_COLUMNS = [
-  ["CSM", "csm"], ["Account Name", "accountName"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Rating", "rating"],
-  ["Product Group", "productGroup"], ["Product Name", "productName"], ["Forecast Month", "forecastMonth", "month"],
-  ["Baseline $", "baselineAmount", "money"], ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
-  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Timing vs Baseline", "timing"],
-  ["Source", "forecastSource"], ["Why (flags)", "flags", "flags"]
+  ["CSM", "csm"], ["Account Name", "accountName"], ["Rating", "rating"], ["Product Group", "productGroup"], ["Product Name", "productName"],
+  ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month"],
+  ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
+  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Why (flags)", "flags", "flags"]
 ];
 const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
 const FY27_CSM_TAIL = ["Saved?", "Line Key"];
-// level of detail behind each line, to the right of the yellow cells: what kind of line it is and which cohorts it is made of
+// to the right of the yellow cells: IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
 const FY27_CSM_DETAIL = [
+  ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
   ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
   ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
 ];
@@ -1863,7 +1863,7 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["WHAT YOU DO"],
     ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
-    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
+    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline Month' and 'Baseline $' are what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast Month' and 'Forecast $' are what we expect; 'Why' explains any flag."],
     ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
     ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
     ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
@@ -2420,7 +2420,7 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   const out = [headers];
   rows.forEach(function (r) {
     const x = r.slice();
-    [colOf("Forecast Month"), colOf("SET: Month")].forEach(function (c) { x[c - 1] = x[c - 1] ? FY27_monthToDate_(FY27_monthKey_(x[c - 1])) : ""; });
+    [colOf("Baseline Month"), colOf("Forecast Month"), colOf("SET: Month")].forEach(function (c) { x[c - 1] = x[c - 1] ? FY27_monthToDate_(FY27_monthKey_(x[c - 1])) : ""; });
     out.push(x);
   });
   sh.getRange(1, 1, out.length, headers.length).setValues(out);
@@ -2430,12 +2430,13 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   sh.getRange(1, nCalc + 1, 1, nIn).setBackground("#FFD966");
   const n = Math.max(rows.length, 1);
   sh.getRange(2, nCalc + 1, n, nIn).setBackground("#FFF2CC");                       // the cells a CSM edits
+  sh.getRange(2, colOf("Baseline Month"), n, 1).setNumberFormat("mmm-yy");
   sh.getRange(2, colOf("Forecast Month"), n, 1).setNumberFormat("mmm-yy");
   sh.getRange(2, colOf("SET: Month"), n, 1).setNumberFormat("mmm-yy");
   [colOf("Baseline $"), colOf("Forecast $ (full value)"), colOf("Weighted $"), colOf("SET: Amount")].forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat("$#,##0"); });
-  const widths = { "CSM": 130, "Account Name": 260, "Full ID": 150, "Student Org ID": 150, "Rating": 60, "Product Group": 130, "Product Name": 200, "Forecast Month": 80,
+  const widths = { "CSM": 130, "Account Name": 260, "Full ID": 150, "Student Org ID": 150, "Rating": 60, "Baseline Month": 80, "Timing vs Baseline": 90, "Product Group": 130, "Product Name": 200, "Forecast Month": 80,
     "Baseline $": 90, "Forecast $ (full value)": 100, "Weighted $": 90, "Forecast Category": 120, "Not Expected Reason": 140, "Roster Stage": 110, "Timing vs Baseline": 80,
-    "Source": 100, "Why (flags)": 420, "Booking Type": 110, "Cohort Names": 220, "Cohort Codes": 140, "Est. Students": 80, "Price Per Student": 90, "Prior-Year Cohorts": 200, "Contract End": 90, "Weight": 60, "Weight Basis": 200, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
+    "Source": 100, "Why (flags)": 320, "Booking Type": 110, "Cohort Names": 220, "Cohort Codes": 140, "Est. Students": 80, "Price Per Student": 90, "Prior-Year Cohorts": 200, "Contract End": 90, "Weight": 60, "Weight Basis": 200, "SET: Category": 120, "SET: Reason": 140, "SET: Stage": 110, "SET: Amount": 90, "SET: Month": 80, "Comment": 240, "Saved?": 130, "Line Key": 60 };
   headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
   // dropdowns on the inputs
   const dd = function (h, list) {
@@ -2456,6 +2457,10 @@ function FY27_writeCsmSheet_(ss, lines, overrideRows, status) {
   sh.getRange(2, colOf("Price Per Student"), n, 1).setNumberFormat("$#,##0");
   sh.getRange(1, colOf("Booking Type")).setNote("What kind of line this is: Renewal (baseline-backed), Rebooking (cohort code present), Roster Chasing (extra predicted cohort), New sale...");
   sh.hideColumns(colOf("Line Key"));
+  sh.getRange(2, colOf("Why (flags)"), n, 1).setWrap(true);
+  sh.getRange(1, colOf("Baseline Month")).setNote("The month of the booking this line is based on (last year's booking, from Tableau). Blank = no baseline (a new or extra cohort).");
+  sh.getRange(1, colOf("Weighted $")).setNote("Forecast $ x how likely this kind of line is to book. Add this column up for any total.");
+  sh.getRange(1, colOf("Full ID")).setNote("Copy this into the Manual Add-Ons or Account Merges tab.");
   sh.getRange(1, colOf("SET: Category")).setNote("Change what the forecast says about this line. Saved as soon as you type; applied at the next refresh.");
   sh.getRange(1, colOf("SET: Amount")).setNote("Only if the amount is wrong. This replaces the full-value amount.");
   sh.getRange(1, colOf("SET: Month")).setNote("Only if it will book in a different month than shown.");

@@ -1546,16 +1546,16 @@ function FY27_team2026Retention_(rows) {
 
 /** Columns of the CSM tab: [header, line field, kind]. "SET:" columns and Comment are the CSM's inputs (stored on the Overrides tab). */
 const FY27_CSM_COLUMNS = [
-  ["CSM", "csm"], ["Account Name", "accountName"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Rating", "rating"],
-  ["Product Group", "productGroup"], ["Product Name", "productName"], ["Forecast Month", "forecastMonth", "month"],
-  ["Baseline $", "baselineAmount", "money"], ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
-  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Timing vs Baseline", "timing"],
-  ["Source", "forecastSource"], ["Why (flags)", "flags", "flags"]
+  ["CSM", "csm"], ["Account Name", "accountName"], ["Rating", "rating"], ["Product Group", "productGroup"], ["Product Name", "productName"],
+  ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month"],
+  ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
+  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"], ["Why (flags)", "flags", "flags"]
 ];
 const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
 const FY27_CSM_TAIL = ["Saved?", "Line Key"];
-// level of detail behind each line, to the right of the yellow cells: what kind of line it is and which cohorts it is made of
+// to the right of the yellow cells: IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
 const FY27_CSM_DETAIL = [
+  ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
   ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
   ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
 ];
@@ -1629,7 +1629,7 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["WHAT YOU DO"],
     ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
-    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline $' is what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast $' is what we expect; 'Why' explains any flag."],
+    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline Month' and 'Baseline $' are what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast Month' and 'Forecast $' are what we expect; 'Why' explains any flag."],
     ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
     ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
     ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
