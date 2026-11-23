@@ -105,9 +105,12 @@ const FY27_CFG = {
   // evidence: in the 2026 backtest the team zeroed about half of them. They are marked At Risk, and totals use a
   // WEIGHTED amount (Forecast Amount x weight by Forecast Category) so At Risk is not counted at full value.
   // Starting weights come from the backtest (team kept ~55-65% of these dollars); recalibrate after each backtest.
-  // Flat-fee product groups, and the size under which a line is treated as an add-on (overage) rather than the flat fee itself.
+  // Flat-fee product groups. A line is an add-on (students over the allocation, a one-time fee) when it is smaller than this fraction of the SAME
+  // client's largest line in that product group (a $2k line next to a $25k flat fee is 8%). The client's largest line is the flat fee itself.
+  // In the 2026 backtest the team zeroed 82% of add-ons defined this way. An add-on is a one-time fee: it is set Not Expected with reason
+  // "Non-Recurring" ($0; the value stays in Value If Booked) and does not go through the generic adjustment test.
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
-  FLAT_FEE_OVERAGE_MAX: 5000,
+  FLAT_FEE_OVERAGE_FRACTION: 0.15,
   AT_RISK_BASELINE_ONLY: true,
   AT_RISK_CATEGORY: "At Risk",
   // Weights for baseline-only lines (no OTC cohort) by segment, first match wins. Set from the AS-OF 2026 backtest (what we would
@@ -120,7 +123,6 @@ const FY27_CFG = {
     // repeats only if the contract is alive; add-ons are variable and rarely repeat. Backtest (baseline-only Med/Allied lines): add-ons under
     // $1k kept 8%, $1-5k kept 23%; flat fees with the contract ended kept 4% (that backtest saw later renewals, so 10% is used), with the contract
     // covering the term kept 38%.
-    { name: "Med/Allied add-on (under flat-fee size)", flatFee: true, overage: true,    weight: 0.15 },
     { name: "Med/Allied flat fee, contract ended",     flatFee: true, ended: true,      weight: 0.10 },
     { name: "Med/Allied flat fee, contract covers",    flatFee: true, covers: true,     weight: 0.40 },
     { name: "Med/Allied flat fee, no contract data",   flatFee: true, noContract: true, weight: 0.50 },

@@ -371,6 +371,14 @@ function FY27_buildForecast(input, cfg) {
   const tableauIds = {};
   base.forEach(function (b) { if (b.fullId) tableauIds[b.fullId] = true; });
 
+  // the client's largest baseline line per product group: for flat-fee groups that line is the flat fee, much smaller lines are add-ons
+  const flatFeeMax = {};
+  base.forEach(function (b) {
+    if (!b.fullId || b.isAdj || b.baseAmt <= 0) return;
+    const k = b.fullId + "|" + b.group;
+    if (!flatFeeMax[k] || b.baseAmt > flatFeeMax[k]) flatFeeMax[k] = b.baseAmt;
+  });
+
   // Which programs (account + product group + family) actually booked in the baseline year?
   // An OTC cohort for a program that did NOT book last year is not forecast (e.g. a PN program
   // that stopped running when two sites merged contracts). Value is kept in "Value If Booked".
@@ -747,7 +755,7 @@ function FY27_buildForecast(input, cfg) {
       const noContract = !otcByAcct[b.fullId] || !cEnd;
       const flatFee = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
       const facts = { group: b.group.toUpperCase(), rating: b.rating.toLowerCase(), ended: ended, noContract: noContract, covers: !ended && !noContract,
-        flatFee: flatFee, overage: flatFee && b.baseAmt < cfg.FLAT_FEE_OVERAGE_MAX };
+        flatFee: flatFee, overage: false };
       const rules = cfg.AT_RISK_WEIGHT_RULES || [];
       for (let ri = 0; ri < rules.length; ri++) {
         const ru = rules[ri];
@@ -761,6 +769,15 @@ function FY27_buildForecast(input, cfg) {
       }
     }
     applyRatingAndAdj(L, b, false);
+    // Med / Allied add-on next to the same client's flat fee: a one-time fee, not expected to repeat
+    if (!b.isBOS && !b.isAdj && L.expectation !== "Not Expected") {
+      const fMax = flatFeeMax[b.fullId + "|" + b.group] || 0;
+      const isFlat = (cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === b.group.toUpperCase(); });
+      if (isFlat && fMax > b.baseAmt && b.baseAmt < cfg.FLAT_FEE_OVERAGE_FRACTION * fMax) {
+        L.expectation = "Not Expected"; L.reason = "Non-Recurring"; L.forecastAmount = 0; L.weightOverride = undefined; L.segment = "Med/Allied one-time add-on";
+        L.flags.push("One-time add-on: $" + Math.round(b.baseAmt).toLocaleString() + " next to this client's $" + Math.round(fMax).toLocaleString() + " flat fee (" + b.group + ") - not expected to repeat");
+      }
+    }
     lines.push(L);
     writeback[b.row] = {
       contractId: "", contractStart: "", contractEnd: cEnd, forecastMonthOtc: "", price: "",
@@ -1082,6 +1099,7 @@ function FY27_flagLikelyAdjustments_(base, otcAll, baseYear, cfg) {
   Object.keys(groups).forEach(function (k) {
     const rows = groups[k];
     const parts = k.split("|");
+    if ((cfg.FLAT_FEE_GROUPS || []).some(function (g) { return g.toUpperCase() === rows[0].group.toUpperCase(); })) return;   // add-ons handled by the flat-fee rule
     // normal booking months-of-year for this product: OTC cohort starts (any year) ...
     const normal = {};
     otcAll.forEach(function (o) {

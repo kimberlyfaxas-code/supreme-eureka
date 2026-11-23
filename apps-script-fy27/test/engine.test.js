@@ -606,9 +606,10 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const done = (end, group) => otc({ "Full ID": "0014u000025SEGMENTS", "Product Group": group || "NURSING COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01",
     "order_estimated_start_date": "2026-02-01", "Contract End Date": end });
   const med = mk({ "Product Group": "MED COURSE" }, [done("2028-01-01", "MED COURSE")]);
-  assert.strictEqual(med.lines[0].segment, "Med/Allied add-on (under flat-fee size)");   // $1,000 < $5,000
-  assert.strictEqual(med.lines[0].weight, 0.15);
-  assert.strictEqual(med.lines[0].weightedAmount, 150);
+  // the client's only Med line is its flat fee, whatever its size
+  assert.strictEqual(med.lines[0].segment, "Med/Allied flat fee, contract covers");
+  assert.strictEqual(med.lines[0].weight, 0.40);
+  assert.strictEqual(med.lines[0].weightedAmount, 400);
   const ended = mk({}, [done("2026-12-01")]);
   assert.strictEqual(ended.lines[0].segment, "Contract ended before month");
   assert.strictEqual(ended.lines[0].expectation, "Pending Contract");
@@ -799,7 +800,7 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const F = "0014u000025SEGCOMP";
   const r = run([tab({ "FULL ID": F, "Product Group": "MED COURSE" })], [otc({ "Full ID": F, "Product Group": "MED COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })]);
   const seg = r.stats.composition.bySegment;
-  assert.ok(seg["Med/Allied add-on (under flat-fee size)"], JSON.stringify(Object.keys(seg)));
+  assert.ok(seg["Med/Allied flat fee, contract covers"], JSON.stringify(Object.keys(seg)));
   assert.strictEqual(Object.keys(seg).reduce((s2, k) => s2 + seg[k].full, 0), r.stats.total);
 }
 // 49. As-of backtest ignores orders created after the backtest year began (a renewal signed in 2026 is not visible on 1 Jan 2026)
@@ -826,8 +827,17 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(flatCovers.segment, "Med/Allied flat fee, contract covers"); assert.strictEqual(flatCovers.weightedAmount, 48000);
   const flatEnded = mk("ALLIED HEALTH COURSE", 120000, "2026-12-01").lines[0];
   assert.strictEqual(flatEnded.segment, "Med/Allied flat fee, contract ended"); assert.strictEqual(flatEnded.weightedAmount, 12000);
-  const addon = mk("MED COURSE", 900, "2028-01-01").lines[0];
-  assert.strictEqual(addon.segment, "Med/Allied add-on (under flat-fee size)");
+  // a small line next to the same client's big flat fee is a one-time add-on (relative, not an absolute dollar cutoff)
+  const two = run([tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "25000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" }),
+                   tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "2000", "Baseline Booking Month - Tableau": "9/1/2026", "Forecast Month - Tableau": "9/1/2027" }),
+                   tab({ "FULL ID": F, "Product Group": "MED COURSE", "Baseline Amount - Tableau": "9000", "Baseline Booking Month - Tableau": "5/1/2026", "Forecast Month - Tableau": "5/1/2027" })],
+    [otc({ "Full ID": F, "Product Group": "MED COURSE", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })]);
+  const at = (m) => two.lines.find((l) => l.forecastMonth === m);
+  assert.strictEqual(at("2027-02").segment, "Med/Allied flat fee, contract covers");
+  assert.strictEqual(at("2027-05").segment, "Med/Allied flat fee, contract covers");   // $9k is 36% of $25k: a second flat fee, not an add-on
+  const ad = at("2027-09");                                                             // $2k is 8% of $25k
+  assert.strictEqual(ad.expectation, "Not Expected"); assert.strictEqual(ad.reason, "Non-Recurring"); assert.strictEqual(ad.forecastAmount, 0);
+  assert.strictEqual(ad.valueIfBooked, 2000); assert.ok(ad.flags.some((f) => /One-time add-on: \$2,000 next to this client's \$25,000 flat fee/.test(f)));
   // no extra cohorts for flat-fee groups even if OTC lists more cohort rows than last year
   const prev = otc({ "Full ID": F, "Product Group": "MED COURSE", "cohort_name": "S1", "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Estimated or Actual Order Total": "1000" });
   const nxt = ["S1", "S2"].map((n) => otc({ "Full ID": F, "Product Group": "MED COURSE", "cohort_name": n, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "1000" }));
