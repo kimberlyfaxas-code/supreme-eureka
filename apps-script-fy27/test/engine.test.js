@@ -1145,4 +1145,19 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.stats.ihpIgnored.lines, 1);
   assert.deepStrictEqual(r.stats.ihpIgnored.notFound, ["Never Heard Of Them"]);
 })();
+// 64. Booked-early value is kept per line and per month (for the coverage table and later reporting)
+(function () {
+  CFG.EARLY_BOOKED_TREATMENT = "prior_year";
+  const r = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025EARLYM01", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "1000" })],
+    otc: [otc({ "Full ID": "0014u000025EARLYM01", "order_status": "Complete", "order_actual_start_date": "2027-02-01" })], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const L = r.lines.find((x) => x.forecastMonth === "2027-02");
+  assert.strictEqual(L.earlyAmount, 1000);
+  assert.strictEqual(L.forecastAmount, 0);
+  const feb = r.coverage.find((c) => c.month === "2027-02");
+  assert.strictEqual(feb.early, 1000);
+  assert.strictEqual(feb.earlyLines, 1);
+  assert.strictEqual(feb.booked, 0);
+  assert.strictEqual(r.coverage.reduce((s, c) => s + c.early, 0), r.stats.earlyBooked.value);
+  CFG.EARLY_BOOKED_TREATMENT = "keep";
+})();
 console.log("all engine tests passed");

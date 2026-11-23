@@ -60,6 +60,7 @@ const FY27_FORECAST_COLUMNS = [
   ["Baseline Amount", "baselineAmount", "money"],
   ["Baseline vs OTC Variance", "adjVariance", "money"],
   ["Value If Booked", "valueIfBooked", "money"],
+  ["Booked Early (counted in prior year) $", "earlyAmount", "money"],
   ["Forecast Amount", "forecastAmount", "money"],
   ["Forecast Weight", "weight", "pct"],
   ["Weight Basis", "segment"],
@@ -307,11 +308,15 @@ function FY27_writeReview_(ss, result, retention) {
     });
     add([]);
   });
-  const covHdr = add(["Month coverage", "Booked $", "Forecast $ (full value)", "Weighted forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?"]);
+  const covHdr = add(["Month coverage", "Booked $ (credited " + FY27_CFG.FORECAST_YEAR + ")", "Forecast $ (full value)", "Weighted forecast $", "Booked lines", "Forecast lines", "Baseline month incomplete?", "Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " $", "Booked early lines"]);
+  const tot = { booked: 0, forecast: 0, weighted: 0, bookedLines: 0, forecastLines: 0, early: 0, earlyLines: 0 };
   result.coverage.forEach(function (c) {
-    const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.weighted, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : ""]);
-    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"], [rr, 5, "#,##0"], [rr, 6, "#,##0"]);
+    Object.keys(tot).forEach(function (k) { tot[k] += c[k] || 0; });
+    const rr = add([FY27_monthToDate_(c.month), c.booked, c.forecast, c.weighted, c.bookedLines, c.forecastLines, c.baselineIncomplete ? "YES" : "", c.early || 0, c.earlyLines || 0]);
+    fmt.push([rr, 1, "mmm-yy"], [rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"], [rr, 5, "#,##0"], [rr, 6, "#,##0"], [rr, 8, "$#,##0"], [rr, 9, "#,##0"]);
   });
+  const tr = add(["Total", tot.booked, tot.forecast, tot.weighted, tot.bookedLines, tot.forecastLines, "", tot.early, tot.earlyLines]);
+  fmt.push([tr, 2, "$#,##0"], [tr, 3, "$#,##0"], [tr, 4, "$#,##0"], [tr, 5, "#,##0"], [tr, 6, "#,##0"], [tr, 8, "$#,##0"], [tr, 9, "#,##0"]);
   add([]);
   const flagHdr = add(["Severity", "Flag", "Account", "Product", "Forecast Month", "Value If Booked", ""]);
   result.review.forEach(function (x) {

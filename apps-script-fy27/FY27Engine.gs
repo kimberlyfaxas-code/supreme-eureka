@@ -589,7 +589,7 @@ function FY27_buildForecast(input, cfg) {
       accountRecordType: "", productGroup: "", productName: "", forecastSource: "",
       priorBookingType: "", nextBookingType: "", adjustment: "", baselineMonth: "", bookingId: "", adjVariance: "",
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
-      baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0,
+      baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0, earlyAmount: 0,
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
       productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "", isManual: false, manualRow: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
@@ -1286,10 +1286,11 @@ function FY27_buildForecast(input, cfg) {
 
   // monthly coverage: how complete is each month?
   const cov = {};
-  for (let m = 1; m <= 12; m++) cov[year + "-" + FY27_pad2_(m)] = { month: year + "-" + FY27_pad2_(m), booked: 0, forecast: 0, bookedLines: 0, forecastLines: 0, baselineIncomplete: false, weighted: 0 };
+  for (let m = 1; m <= 12; m++) cov[year + "-" + FY27_pad2_(m)] = { month: year + "-" + FY27_pad2_(m), booked: 0, forecast: 0, bookedLines: 0, forecastLines: 0, baselineIncomplete: false, weighted: 0, early: 0, earlyLines: 0 };
   lines.forEach(function (L) {
     const c = cov[L.forecastMonth];
     if (!c) return;
+    if (L.earlyAmount > 0) { c.early += L.earlyAmount; c.earlyLines++; }
     if (L.status === "Booked") { c.booked += L.forecastAmount; c.bookedLines++; } else { c.forecast += L.forecastAmount; c.forecastLines++; c.weighted += L.weightedAmount; }
     if (L.flags.some(function (f) { return f.indexOf("not complete yet") >= 0; })) c.baselineIncomplete = true;
   });
@@ -1485,6 +1486,7 @@ function FY27_mergeLines_(parts, makeLine) {
   L.weight = fsum ? wsum / fsum : first.weight;
   L.valueIfBooked = sum("valueIfBooked");
   L.forecastAmount = sum("forecastAmount");
+  L.earlyAmount = sum("earlyAmount");
   L.estStudents = parts.some(function (p) { return p.estStudents !== ""; }) ? sum("estStudents") : "";
   L.adjStudents = parts.some(function (p) { return p.adjStudents !== ""; })
     ? FY27_round2_(parts.reduce(function (t, p) { return t + (p.adjStudents !== "" ? Number(p.adjStudents) : (Number(p.estStudents) || 0)); }, 0)) : "";
@@ -1631,7 +1633,7 @@ const FY27_CSM_TAIL = ["Saved?", "Why (flags)", "Line Key"].concat(FY27_CSM_EDIT
 const FY27_CSM_DETAIL = [
   ["Rating", "rating"], ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
   ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
-  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
+  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"], ["Booked Early (counted in prior year) $", "earlyAmount", "money"]
 ];
 
 function FY27_csmHeaders_() {
