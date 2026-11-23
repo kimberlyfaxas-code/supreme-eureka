@@ -846,4 +846,45 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   CFG.AMOUNT_BASIS = "otc";
   assert.strictEqual(ex.lines.filter((l) => l.forecastSource === "OTC").length, 0);
 }
+// 51. Historical retention from the raw crosstab: gross (renewals only), net (with expansion), logo; partial years compare like months
+{
+  const row = (acct, grp, mon, v) => ({ "Crosstab Level 1 ": acct + " (001C0000014HAw7IAG)", "Crosstab Level 2": grp, "Transaction Date Group": mon, "Metric value Sales": String(v) });
+  const A = "Alpha", B = "Beta", C = "Gamma";
+  const raw = [
+    row(A, "NURSING COURSE", "Feb-24", 1000), row(B, "NURSING COURSE", "Mar-24", 500), row(C.replace("Gamma", "Gamma"), "MED COURSE", "Apr-24", 300),
+    // 2025: A grows to 1500 (-100 adjustment), B drops to 0, C keeps 300
+    row(A, "NURSING COURSE", "Feb-25", 1600), row(A, "NURSING COURSE", "Jun-25", -100), row(C, "MED COURSE", "Apr-25", 300),
+    // 2026: only through Oct; A 1200, C nothing; a November booking must be ignored when comparing like months
+    row(A, "NURSING COURSE", "Feb-26", 1200), row(A, "NURSING COURSE", "Nov-26", 9999)
+  ];
+  // all three share the same org id in this fixture, so make them distinct by group+org: use the same id but different groups to keep keys apart
+  const h = E.FY27_historicalRetention_(raw, "2026-10");
+  const p2425 = h.find((x) => /^2024 to 2025/.test(x.label));
+  assert.ok(p2425 && !/Jan-/.test(p2425.label), "2024 to 2025 is a full-year comparison");
+  // keys (org|group): NURSING (A+B combined under one org id) 1500 -> 1500 ; MED 300 -> 300
+  assert.strictEqual(Math.round(p2425.baseline), 1800);
+  assert.ok(p2425.grossPct > 0.99 && p2425.grossPct <= 1.0001);
+  const p2526 = h.find((x) => /^2025 to 2026/.test(x.label));
+  assert.ok(/Jan-Oct/.test(p2526.label), p2526.label);
+  assert.strictEqual(Math.round(p2526.baseline), 1800);              // 2025 through Oct
+  assert.ok(Math.abs(p2526.grossPct - 1200 / 1800) < 1e-9, p2526.grossPct);   // Nov-26 ignored; MED lost, NURSING 1500 -> 1200 (min)
+  assert.ok(Math.abs(p2526.logoPct - 0.5) < 1e-9);
+}
+// 52. Retention by model: repeat-baseline row is 100%, weighted <= full, confirmed-only <= weighted-gross upper bound, extras lift net only
+{
+  const F = "0014u000025RETMODEL";
+  const input = { tableau: [tab({ "FULL ID": F })], otc: [otc({ "Full ID": F, "order_status": "Complete", "order_actual_start_date": "2026-02-01", "order_estimated_start_date": "2026-02-01", "Contract End Date": "2028-01-01" })],
+    salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 18) };
+  const res = E.FY27_buildForecast(input, CFG);
+  const models = E.FY27_retentionModels_(input, CFG, res);
+  assert.strictEqual(models[0].fullGrossPct, 1);
+  assert.ok(models.length >= 5);
+  models.slice(1).forEach((m) => { assert.ok(m.weightedGrossPct <= m.fullGrossPct + 1e-9, m.name); assert.ok(m.confirmedGrossPct <= m.fullGrossPct + 1e-9, m.name); });
+  const cur = models.find((m) => /current model: AMOUNT_BASIS/.test(m.name));
+  assert.strictEqual(cur.baseline, 1000);
+  assert.strictEqual(cur.fullGross, 1000);              // baseline-only line repeats at full value
+  assert.strictEqual(Math.round(cur.weightedGross), 800);   // "contract covers year, no cohort" weight 80%
+  assert.strictEqual(cur.confirmedGross, 0);            // At Risk is not confirmed
+  assert.ok(E.FY27_team2026Retention_([{ "Forecast Line Type": "Forecast", "Baseline Amount": "1000", "Forecast Amount": "800" }, { "Forecast Line Type": "Adjustment", "Baseline Amount": "0", "Forecast Amount": "-50" }]).pct === 0.8);
+}
 console.log("all engine tests passed");

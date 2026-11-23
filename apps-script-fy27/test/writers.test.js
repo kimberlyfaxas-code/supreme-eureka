@@ -34,7 +34,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_ };")(SpreadsheetApp, {});
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {});
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -47,7 +47,13 @@ const res = api.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025WRIT
 api.FY27_ensureOverridesSheet_();
 api.FY27_writeForecast_(ss, res.lines, CFG.SHEETS.FORECAST);
 api.FY27_writeForecast_(ss, res.detail, CFG.SHEETS.DETAIL);
-api.FY27_writeReview_(ss, res);
+const E = api.FY27_retentionModels_ ? api : null;
+const input = { tableau: [tab({ "FULL ID": "0014u000025WRITERS" })], otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 18) };
+const retention = { models: api.FY27_retentionModels_(input, CFG, res), history: api.FY27_historicalRetention_([
+  { "Crosstab Level 1 ": "Acct (001C0000014HAw7IAG)", "Crosstab Level 2": "NURSING COURSE", "Transaction Date Group": "Mar-25", "Metric value Sales": "1000" },
+  { "Crosstab Level 1 ": "Acct (001C0000014HAw7IAG)", "Crosstab Level 2": "NURSING COURSE", "Transaction Date Group": "Mar-26", "Metric value Sales": "900" }], "2026-10"),
+  team2026: api.FY27_team2026Retention_([{ "Forecast Line Type": "Forecast", "Baseline Amount": "1000", "Forecast Amount": "800" }]) };
+api.FY27_writeReview_(ss, res, retention);
 
 const ORG = "001ORGAAAAAAAAA1";
 const bt = api.FY27_backtest_({

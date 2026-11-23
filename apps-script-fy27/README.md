@@ -105,6 +105,13 @@ cohorts are chosen as the extras. The baseline itself is not diluted: the other 
 
 The Review tab shows a **Weight basis** table (rows, full value, weighted $ by segment) and the Forecast tab a **Weight Basis** column, so you can see why a line is weighted the way it is.
 
+## Summary page: predicted retention by model (`RETENTION_MODELS`)
+The Review tab shows, for each model, predicted retention = forecast / Tableau baseline: repeat-the-baseline (100%), OTC amounts + trend, OTC capped at Tableau,
+the current Tableau-anchored model, and the current model without additional cohorts. Columns: gross (lines tied to a baseline row) at full value and weighted,
+net weighted (adds new/additional OTC cohorts), and confirmed-only (Captured + Expected). Below it, actual retention history from the raw Tableau crosstab
+(tab name starting `Flex Hierarchy Crosstab`: account, product group, product, booking type, CSM, month, sales incl. negative adjustments): gross $ (renewals only),
+net $ and logo retention per year pair (the current year is compared on the same months of both years), plus the 2026 team forecast as recorded.
+
 ## Overrides (survive refreshes)
 Select a row on `Forecast`, run **Add override for selected Forecast row**, then set Override Amount /
 Override Month / Exclude on `Forecast Overrides`. Overrides are keyed on `Line Key`.

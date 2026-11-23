@@ -104,14 +104,31 @@ function FY27_run() {
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
-    const result = FY27_buildForecast({
+    const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
       adjustments: adjustments.rows, now: new Date()
-    }, cfg);
+    };
+    const result = FY27_buildForecast(input, cfg);
+
+    // summary page: predicted retention by model + actual history (never allowed to break the main build)
+    let retention = null;
+    try {
+      retention = { models: [], history: [], team2026: null };
+      if (cfg.RETENTION_MODELS) {
+        ss.toast("Comparing models...", "FY27 Forecast", 8);
+        retention.models = FY27_retentionModels_(input, cfg, result);
+      }
+      const rawSheet = ss.getSheets().filter(function (s) { return s.getName().indexOf(cfg.SHEETS.RAW_HISTORY_PREFIX) === 0; })[0];
+      if (rawSheet) retention.history = FY27_historicalRetention_(FY27_gridToRows_(rawSheet.getDataRange().getValues()).rows, FY27_addMonths_(result.stats.actualsThrough, -1));
+      const refSheet = ss.getSheetByName(cfg.SHEETS.BT_FINAL);
+      if (refSheet) retention.team2026 = FY27_team2026Retention_(FY27_gridToRows_(refSheet.getDataRange().getValues()).rows);
+    } catch (e) {
+      ss.toast("Retention comparison skipped: " + e.message, "FY27 Forecast", 8);
+    }
 
     FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
     FY27_writeForecast_(ss, result.detail, cfg.SHEETS.DETAIL);
-    FY27_writeReview_(ss, result);
+    FY27_writeReview_(ss, result, retention);
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
     ss.toast(
@@ -179,7 +196,7 @@ function FY27_writeForecast_(ss, lines, name) {
   sh.autoResizeColumns(1, Math.min(headers.length, 20));
 }
 
-function FY27_writeReview_(ss, result) {
+function FY27_writeReview_(ss, result, retention) {
   const name = FY27_CFG.SHEETS.REVIEW;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
@@ -201,6 +218,29 @@ function FY27_writeReview_(ss, result) {
   r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
   fmt.push([r, 4, "$#,##0"]);
   add([]);
+  // predicted retention under each model, next to what retention actually was
+  const retHdrs = [];
+  if (retention && retention.models && retention.models.length) {
+    retHdrs.push(add(["Predicted retention by model", "Forecast $ (full)", "Weighted $", "Gross retention (full)", "Gross retention (weighted)", "Net retention (weighted)", "Confirmed only (gross)"]));
+    retention.models.forEach(function (m) {
+      const rr = add([m.name, m.fullNet, m.weightedNet, m.fullGrossPct, m.weightedGrossPct, m.weightedNetPct, m.confirmedGrossPct]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "0.0%"], [rr, 7, "0.0%"]);
+    });
+    add(["Retention = forecast / Tableau baseline (" + "$" + Math.round(retention.models[0].baseline).toLocaleString() + "). Gross = lines tied to a Tableau baseline row only; net also counts new and additional OTC cohorts; confirmed = Captured + Expected only."]);
+  }
+  if (retention && ((retention.history && retention.history.length) || retention.team2026)) {
+    retHdrs.push(add(["Actual retention history (raw Tableau)", "Earlier-year $", "Gross $ retention", "Net $ retention", "Logo retention", "Accounts x group", ""]));
+    (retention.history || []).forEach(function (h) {
+      const rr = add([h.label, h.baseline, h.grossPct, h.netPct, h.logoPct, h.accounts]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "#,##0"]);
+    });
+    if (retention.team2026) {
+      const rr = add(["2026 team forecast (as recorded in the 2026 reference)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
+    }
+    add(["Gross $ = renewals only (min of this year and last year per account x group); net $ includes expansion; logo = share of accounts x group with any booking."]);
+  }
+  if (retHdrs.length) add([]);
   // baseline check: forecast baseline column should equal Tableau + Adjustments tab
   const bl = s.baseline;
   r = add(["Baseline check", "Tableau tab $", "Adjustments tab $", "Baseline in forecast $", "Difference $", ""]);
@@ -238,7 +278,7 @@ function FY27_writeReview_(ss, result) {
   sh.getRange(1, 1, rows.length, w).setValues(rows);
   fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
-  compHdrs.forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
+  compHdrs.concat(retHdrs).forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
   [blHdr, covHdr, flagHdr].forEach(function (h) { sh.getRange(h, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6"); });
   sh.setColumnWidth(2, 460);
   sh.autoResizeColumns(1, 1);

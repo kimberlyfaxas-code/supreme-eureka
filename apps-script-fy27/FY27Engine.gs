@@ -1179,6 +1179,100 @@ function FY27_mergeLines_(parts, makeLine) {
   return L;
 }
 
+/* ---------------- retention summary ---------------- */
+
+/**
+ * Retention for one engine result. Denominator = the Tableau baseline (+ Adjustments tab). "Gross" counts only lines linked to a Tableau
+ * baseline row (what happens to last year's bookings); "net" also counts new / additional OTC cohorts.
+ */
+function FY27_retentionSummary_(result, name) {
+  const b = result.stats.baseline;
+  const baseline = b.tableau + b.adjustmentsTab;
+  const o = { name: name, baseline: baseline, fullGross: 0, weightedGross: 0, fullNet: 0, weightedNet: 0, confirmedGross: 0 };
+  result.lines.forEach(function (L) {
+    const linked = String(L.forecastSource).indexOf("Tableau") >= 0;
+    o.fullNet += L.forecastAmount; o.weightedNet += L.weightedAmount;
+    if (linked) {
+      o.fullGross += L.forecastAmount; o.weightedGross += L.weightedAmount;
+      if (L.expectation === "Captured" || L.expectation === "Expected") o.confirmedGross += L.forecastAmount;
+    }
+  });
+  const pct = function (v) { return baseline ? v / baseline : 0; };
+  o.fullGrossPct = pct(o.fullGross); o.weightedGrossPct = pct(o.weightedGross); o.weightedNetPct = pct(o.weightedNet);
+  o.fullNetPct = pct(o.fullNet); o.confirmedGrossPct = pct(o.confirmedGross);
+  return o;
+}
+
+/** Re-run the engine under the alternative models so their predicted retention can be compared side by side. */
+function FY27_retentionModels_(input, cfg, defaultResult) {
+  const rows = [];
+  const base = defaultResult.stats.baseline.tableau + defaultResult.stats.baseline.adjustmentsTab;
+  rows.push({ name: "Repeat the Tableau baseline (no model)", baseline: base, fullGross: base, weightedGross: base, fullNet: base, weightedNet: base, confirmedGross: base,
+    fullGrossPct: 1, weightedGrossPct: 1, weightedNetPct: 1, fullNetPct: 1, confirmedGrossPct: 1 });
+  [["OTC cohort amounts + trend (AMOUNT_BASIS otc)", { AMOUNT_BASIS: "otc" }],
+   ["OTC amounts capped at Tableau (AMOUNT_BASIS min)", { AMOUNT_BASIS: "min" }]].forEach(function (m) {
+    rows.push(FY27_retentionSummary_(FY27_buildForecast(input, Object.assign({}, cfg, m[1])), m[0]));
+  });
+  const d = FY27_retentionSummary_(defaultResult, "Tableau baseline anchored (current model: AMOUNT_BASIS " + (cfg.AMOUNT_BASIS || "otc") + ")");
+  rows.push(d);
+  rows.push(FY27_retentionSummary_(FY27_buildForecast(input, Object.assign({}, cfg, { EXTRA_COHORTS: false })), "Current model without additional predicted cohorts"));
+  return rows;
+}
+
+/**
+ * Historical actual retention from the raw Tableau crosstab (Level 1 "Account (OrgID)", Level 2 product group, Transaction Date Group "Jun-26",
+ * Metric value Sales incl. negative adjustments). For each year pair: keys = account x product group booked in the earlier year.
+ *   gross $ = sum of min(this year, last year) / last year   (renewals only, no expansion)
+ *   net $   = this year's bookings of those same keys / last year
+ *   logo    = share of those keys with any booking this year
+ * A year that is not complete yet is compared on the same months of both years (Jan..lastCompleteMonth).
+ */
+function FY27_historicalRetention_(rawRows, lastCompleteMonth) {
+  const sums = {};     // year -> key -> {m: month-of-year -> $}
+  const years = {};
+  rawRows.forEach(function (r) {
+    const l1 = FY27_str_(r["Crosstab Level 1"] || r["Crosstab Level 1 "]);
+    const mo = FY27_monthKey_(r["Transaction Date Group"]);
+    if (!l1 || !mo) return;
+    const m = l1.match(/\(([A-Za-z0-9]{10,18})\)\s*$/);
+    const key = (m ? FY27_id15_(m[1]) : l1) + "|" + FY27_str_(r["Crosstab Level 2"]);
+    const y = FY27_yearOf_(mo), mm = parseInt(mo.slice(5, 7), 10);
+    years[y] = true;
+    const ym = sums[y] || (sums[y] = {});
+    const k = ym[key] || (ym[key] = {});
+    k[mm] = (k[mm] || 0) + FY27_num_(r["Metric value Sales"]);
+  });
+  const ys = Object.keys(years).map(Number).sort();
+  const lastY = FY27_yearOf_(lastCompleteMonth), lastM = parseInt(lastCompleteMonth.slice(5, 7), 10);
+  const out = [];
+  ys.forEach(function (y) {
+    if (!years[y - 1]) return;
+    const partial = y > lastY || (y === lastY && lastM < 12);
+    const upto = partial ? lastM : 12;
+    const tot = function (obj, key) { const k = obj[key]; if (!k) return 0; let s = 0; for (let i = 1; i <= upto; i++) s += k[i] || 0; return s; };
+    let base = 0, gross = 0, net = 0, n = 0, kept = 0;
+    Object.keys(sums[y - 1]).forEach(function (key) {
+      const prev = tot(sums[y - 1], key);
+      if (prev <= 0) return;
+      const cur = tot(sums[y] || {}, key);
+      base += prev; gross += Math.min(Math.max(cur, 0), prev); net += cur; n++; if (cur > 0) kept++;
+    });
+    if (base > 0) out.push({ label: (y - 1) + " to " + y + (partial ? " (Jan-" + FY27_MONTH_NAMES_[upto - 1] + " of both years)" : ""), baseline: base,
+      grossPct: gross / base, netPct: net / base, logoPct: n ? kept / n : 0, accounts: n });
+  });
+  return out;
+}
+
+/** The 2026 team forecast as recorded in the 2026 forecast reference: forecast / baseline over the forecast lines. */
+function FY27_team2026Retention_(rows) {
+  let base = 0, fc = 0;
+  rows.forEach(function (r) {
+    if (FY27_str_(r["Forecast Line Type"]).toLowerCase().indexOf("adjust") >= 0) return;
+    base += FY27_num_(r["Baseline Amount"]); fc += FY27_num_(r["Forecast Amount"]);
+  });
+  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base } : null;
+}
+
 function FY27_severity_(flag) {
   const f = flag.toLowerCase();
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
@@ -1193,6 +1287,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FY27_buildForecast: FY27_buildForecast, FY27_gridToRows_: FY27_gridToRows_,
     FY27_monthKey_: FY27_monthKey_, FY27_addMonths_: FY27_addMonths_, FY27_family_: FY27_family_,
-    FY27_num_: FY27_num_
+    FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
+    FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_
   };
 }

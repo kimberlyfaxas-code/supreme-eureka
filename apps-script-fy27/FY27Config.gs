@@ -19,6 +19,7 @@ const FY27_CFG = {
     DETAIL: "Forecast Detail",       // ungrouped (one row per OTC cohort / baseline line) for tracing
     ADJUSTMENTS: "Adjustments",     // negative adjustments (baseline only, never forecast); optional
     REVIEW: "Forecast Review",
+    RAW_HISTORY_PREFIX: "Flex Hierarchy Crosstab",   // raw Tableau crosstab 2024-2026 (account, group, product, booking type, CSM, month, sales)
     BT_BEGINNING: "2026 Beginning Forecast Reference",
     BT_FINAL: "2026 Forecast Reference",
     BT_ACTUALS_2024: "2024 Actuals",
@@ -173,6 +174,9 @@ const FY27_CFG = {
   // otherwise make a 2026 line look "covered" when, on 1 Jan 2026, its contract had ended and no renewal existed yet. That leak made "contract ended"
   // look worse than it was and pushed its weight too low.
   BT_AS_OF_DROP_CREATED_AFTER: true,
+
+  // Summary page: predicted retention under each model, next to actual retention history. Re-runs the engine a few times (a bit slower).
+  RETENTION_MODELS: true,
 
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,

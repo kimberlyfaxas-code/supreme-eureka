@@ -24,6 +24,7 @@ const FY27_CFG = {
     DETAIL: "Forecast Detail",       // ungrouped (one row per OTC cohort / baseline line) for tracing
     ADJUSTMENTS: "Adjustments",     // negative adjustments (baseline only, never forecast); optional
     REVIEW: "Forecast Review",
+    RAW_HISTORY_PREFIX: "Flex Hierarchy Crosstab",   // raw Tableau crosstab 2024-2026 (account, group, product, booking type, CSM, month, sales)
     BT_BEGINNING: "2026 Beginning Forecast Reference",
     BT_FINAL: "2026 Forecast Reference",
     BT_ACTUALS_2024: "2024 Actuals",
@@ -178,6 +179,9 @@ const FY27_CFG = {
   // otherwise make a 2026 line look "covered" when, on 1 Jan 2026, its contract had ended and no renewal existed yet. That leak made "contract ended"
   // look worse than it was and pushed its weight too low.
   BT_AS_OF_DROP_CREATED_AFTER: true,
+
+  // Summary page: predicted retention under each model, next to actual retention history. Re-runs the engine a few times (a bit slower).
+  RETENTION_MODELS: true,
 
   // Credit rule: first N months after a cohort's first booking = New, afterwards = Renewal
   NEW_CREDIT_MONTHS: 12,
@@ -1383,6 +1387,100 @@ function FY27_mergeLines_(parts, makeLine) {
   return L;
 }
 
+/* ---------------- retention summary ---------------- */
+
+/**
+ * Retention for one engine result. Denominator = the Tableau baseline (+ Adjustments tab). "Gross" counts only lines linked to a Tableau
+ * baseline row (what happens to last year's bookings); "net" also counts new / additional OTC cohorts.
+ */
+function FY27_retentionSummary_(result, name) {
+  const b = result.stats.baseline;
+  const baseline = b.tableau + b.adjustmentsTab;
+  const o = { name: name, baseline: baseline, fullGross: 0, weightedGross: 0, fullNet: 0, weightedNet: 0, confirmedGross: 0 };
+  result.lines.forEach(function (L) {
+    const linked = String(L.forecastSource).indexOf("Tableau") >= 0;
+    o.fullNet += L.forecastAmount; o.weightedNet += L.weightedAmount;
+    if (linked) {
+      o.fullGross += L.forecastAmount; o.weightedGross += L.weightedAmount;
+      if (L.expectation === "Captured" || L.expectation === "Expected") o.confirmedGross += L.forecastAmount;
+    }
+  });
+  const pct = function (v) { return baseline ? v / baseline : 0; };
+  o.fullGrossPct = pct(o.fullGross); o.weightedGrossPct = pct(o.weightedGross); o.weightedNetPct = pct(o.weightedNet);
+  o.fullNetPct = pct(o.fullNet); o.confirmedGrossPct = pct(o.confirmedGross);
+  return o;
+}
+
+/** Re-run the engine under the alternative models so their predicted retention can be compared side by side. */
+function FY27_retentionModels_(input, cfg, defaultResult) {
+  const rows = [];
+  const base = defaultResult.stats.baseline.tableau + defaultResult.stats.baseline.adjustmentsTab;
+  rows.push({ name: "Repeat the Tableau baseline (no model)", baseline: base, fullGross: base, weightedGross: base, fullNet: base, weightedNet: base, confirmedGross: base,
+    fullGrossPct: 1, weightedGrossPct: 1, weightedNetPct: 1, fullNetPct: 1, confirmedGrossPct: 1 });
+  [["OTC cohort amounts + trend (AMOUNT_BASIS otc)", { AMOUNT_BASIS: "otc" }],
+   ["OTC amounts capped at Tableau (AMOUNT_BASIS min)", { AMOUNT_BASIS: "min" }]].forEach(function (m) {
+    rows.push(FY27_retentionSummary_(FY27_buildForecast(input, Object.assign({}, cfg, m[1])), m[0]));
+  });
+  const d = FY27_retentionSummary_(defaultResult, "Tableau baseline anchored (current model: AMOUNT_BASIS " + (cfg.AMOUNT_BASIS || "otc") + ")");
+  rows.push(d);
+  rows.push(FY27_retentionSummary_(FY27_buildForecast(input, Object.assign({}, cfg, { EXTRA_COHORTS: false })), "Current model without additional predicted cohorts"));
+  return rows;
+}
+
+/**
+ * Historical actual retention from the raw Tableau crosstab (Level 1 "Account (OrgID)", Level 2 product group, Transaction Date Group "Jun-26",
+ * Metric value Sales incl. negative adjustments). For each year pair: keys = account x product group booked in the earlier year.
+ *   gross $ = sum of min(this year, last year) / last year   (renewals only, no expansion)
+ *   net $   = this year's bookings of those same keys / last year
+ *   logo    = share of those keys with any booking this year
+ * A year that is not complete yet is compared on the same months of both years (Jan..lastCompleteMonth).
+ */
+function FY27_historicalRetention_(rawRows, lastCompleteMonth) {
+  const sums = {};     // year -> key -> {m: month-of-year -> $}
+  const years = {};
+  rawRows.forEach(function (r) {
+    const l1 = FY27_str_(r["Crosstab Level 1"] || r["Crosstab Level 1 "]);
+    const mo = FY27_monthKey_(r["Transaction Date Group"]);
+    if (!l1 || !mo) return;
+    const m = l1.match(/\(([A-Za-z0-9]{10,18})\)\s*$/);
+    const key = (m ? FY27_id15_(m[1]) : l1) + "|" + FY27_str_(r["Crosstab Level 2"]);
+    const y = FY27_yearOf_(mo), mm = parseInt(mo.slice(5, 7), 10);
+    years[y] = true;
+    const ym = sums[y] || (sums[y] = {});
+    const k = ym[key] || (ym[key] = {});
+    k[mm] = (k[mm] || 0) + FY27_num_(r["Metric value Sales"]);
+  });
+  const ys = Object.keys(years).map(Number).sort();
+  const lastY = FY27_yearOf_(lastCompleteMonth), lastM = parseInt(lastCompleteMonth.slice(5, 7), 10);
+  const out = [];
+  ys.forEach(function (y) {
+    if (!years[y - 1]) return;
+    const partial = y > lastY || (y === lastY && lastM < 12);
+    const upto = partial ? lastM : 12;
+    const tot = function (obj, key) { const k = obj[key]; if (!k) return 0; let s = 0; for (let i = 1; i <= upto; i++) s += k[i] || 0; return s; };
+    let base = 0, gross = 0, net = 0, n = 0, kept = 0;
+    Object.keys(sums[y - 1]).forEach(function (key) {
+      const prev = tot(sums[y - 1], key);
+      if (prev <= 0) return;
+      const cur = tot(sums[y] || {}, key);
+      base += prev; gross += Math.min(Math.max(cur, 0), prev); net += cur; n++; if (cur > 0) kept++;
+    });
+    if (base > 0) out.push({ label: (y - 1) + " to " + y + (partial ? " (Jan-" + FY27_MONTH_NAMES_[upto - 1] + " of both years)" : ""), baseline: base,
+      grossPct: gross / base, netPct: net / base, logoPct: n ? kept / n : 0, accounts: n });
+  });
+  return out;
+}
+
+/** The 2026 team forecast as recorded in the 2026 forecast reference: forecast / baseline over the forecast lines. */
+function FY27_team2026Retention_(rows) {
+  let base = 0, fc = 0;
+  rows.forEach(function (r) {
+    if (FY27_str_(r["Forecast Line Type"]).toLowerCase().indexOf("adjust") >= 0) return;
+    base += FY27_num_(r["Baseline Amount"]); fc += FY27_num_(r["Forecast Amount"]);
+  });
+  return base > 0 ? { baseline: base, forecast: fc, pct: fc / base } : null;
+}
+
 function FY27_severity_(flag) {
   const f = flag.toLowerCase();
   if (f.indexOf("needs renewal") >= 0 || f.indexOf("no otc data") >= 0 || f.indexOf("not in tableau") >= 0 ||
@@ -1397,7 +1495,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FY27_buildForecast: FY27_buildForecast, FY27_gridToRows_: FY27_gridToRows_,
     FY27_monthKey_: FY27_monthKey_, FY27_addMonths_: FY27_addMonths_, FY27_family_: FY27_family_,
-    FY27_num_: FY27_num_
+    FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
+    FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_
   };
 }
 
@@ -1508,14 +1607,31 @@ function FY27_run() {
     const adjustments = adjSheet ? FY27_gridToRows_(adjSheet.getDataRange().getValues()) : { rows: [] };
 
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
-    const result = FY27_buildForecast({
+    const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
       adjustments: adjustments.rows, now: new Date()
-    }, cfg);
+    };
+    const result = FY27_buildForecast(input, cfg);
+
+    // summary page: predicted retention by model + actual history (never allowed to break the main build)
+    let retention = null;
+    try {
+      retention = { models: [], history: [], team2026: null };
+      if (cfg.RETENTION_MODELS) {
+        ss.toast("Comparing models...", "FY27 Forecast", 8);
+        retention.models = FY27_retentionModels_(input, cfg, result);
+      }
+      const rawSheet = ss.getSheets().filter(function (s) { return s.getName().indexOf(cfg.SHEETS.RAW_HISTORY_PREFIX) === 0; })[0];
+      if (rawSheet) retention.history = FY27_historicalRetention_(FY27_gridToRows_(rawSheet.getDataRange().getValues()).rows, FY27_addMonths_(result.stats.actualsThrough, -1));
+      const refSheet = ss.getSheetByName(cfg.SHEETS.BT_FINAL);
+      if (refSheet) retention.team2026 = FY27_team2026Retention_(FY27_gridToRows_(refSheet.getDataRange().getValues()).rows);
+    } catch (e) {
+      ss.toast("Retention comparison skipped: " + e.message, "FY27 Forecast", 8);
+    }
 
     FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
     FY27_writeForecast_(ss, result.detail, cfg.SHEETS.DETAIL);
-    FY27_writeReview_(ss, result);
+    FY27_writeReview_(ss, result, retention);
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
     ss.toast(
@@ -1583,7 +1699,7 @@ function FY27_writeForecast_(ss, lines, name) {
   sh.autoResizeColumns(1, Math.min(headers.length, 20));
 }
 
-function FY27_writeReview_(ss, result) {
+function FY27_writeReview_(ss, result, retention) {
   const name = FY27_CFG.SHEETS.REVIEW;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
@@ -1605,6 +1721,29 @@ function FY27_writeReview_(ss, result) {
   r = add(["Gray/black roster chasing ignored", s.ignoredRosterChasing.cohorts + " OTC cohorts", "Value ignored", s.ignoredRosterChasing.value]);
   fmt.push([r, 4, "$#,##0"]);
   add([]);
+  // predicted retention under each model, next to what retention actually was
+  const retHdrs = [];
+  if (retention && retention.models && retention.models.length) {
+    retHdrs.push(add(["Predicted retention by model", "Forecast $ (full)", "Weighted $", "Gross retention (full)", "Gross retention (weighted)", "Net retention (weighted)", "Confirmed only (gross)"]));
+    retention.models.forEach(function (m) {
+      const rr = add([m.name, m.fullNet, m.weightedNet, m.fullGrossPct, m.weightedGrossPct, m.weightedNetPct, m.confirmedGrossPct]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "$#,##0"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "0.0%"], [rr, 7, "0.0%"]);
+    });
+    add(["Retention = forecast / Tableau baseline (" + "$" + Math.round(retention.models[0].baseline).toLocaleString() + "). Gross = lines tied to a Tableau baseline row only; net also counts new and additional OTC cohorts; confirmed = Captured + Expected only."]);
+  }
+  if (retention && ((retention.history && retention.history.length) || retention.team2026)) {
+    retHdrs.push(add(["Actual retention history (raw Tableau)", "Earlier-year $", "Gross $ retention", "Net $ retention", "Logo retention", "Accounts x group", ""]));
+    (retention.history || []).forEach(function (h) {
+      const rr = add([h.label, h.baseline, h.grossPct, h.netPct, h.logoPct, h.accounts]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"], [rr, 4, "0.0%"], [rr, 5, "0.0%"], [rr, 6, "#,##0"]);
+    });
+    if (retention.team2026) {
+      const rr = add(["2026 team forecast (as recorded in the 2026 reference)", retention.team2026.baseline, retention.team2026.pct, "", "", ""]);
+      fmt.push([rr, 2, "$#,##0"], [rr, 3, "0.0%"]);
+    }
+    add(["Gross $ = renewals only (min of this year and last year per account x group); net $ includes expansion; logo = share of accounts x group with any booking."]);
+  }
+  if (retHdrs.length) add([]);
   // baseline check: forecast baseline column should equal Tableau + Adjustments tab
   const bl = s.baseline;
   r = add(["Baseline check", "Tableau tab $", "Adjustments tab $", "Baseline in forecast $", "Difference $", ""]);
@@ -1642,7 +1781,7 @@ function FY27_writeReview_(ss, result) {
   sh.getRange(1, 1, rows.length, w).setValues(rows);
   fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
-  compHdrs.forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
+  compHdrs.concat(retHdrs).forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
   [blHdr, covHdr, flagHdr].forEach(function (h) { sh.getRange(h, 1, 1, width).setFontWeight("bold").setBackground("#E7EDF6"); });
   sh.setColumnWidth(2, 460);
   sh.autoResizeColumns(1, 1);
