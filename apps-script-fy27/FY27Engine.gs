@@ -167,6 +167,17 @@ function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
 
+/** Account-name key used to match the iHP list to the data: lower case, "&" = "and", punctuation and extra spaces ignored. */
+function FY27_nameKey_(s) {
+  return FY27_str_(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** The Salesforce account ID inside a record link (".../Account/0014u000025PBFfAAO/view", "...?id=001...") or "". */
+function FY27_idFromUrl_(url) {
+  const m = FY27_str_(url).match(/(001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?![A-Za-z0-9])/);
+  return m ? m[1] : "";
+}
+
 /* ---------------- account merges ---------------- */
 
 /**
@@ -970,14 +981,27 @@ function FY27_buildForecast(input, cfg) {
   /* ---- 2-. Active iHP accounts: the maintained iHP account list is the reference for the iHP product group ----
    * When the "iHP Active Accounts" tab has rows, an iHP line (baseline-driven or OTC-only) whose account is not on that list is dropped entirely:
    * it is not forecast, not shown, and not counted. Manual add-ons and carry-ins are never dropped. No rows = rule off. */
-  const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [] };
+  const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [], notFound: [] };
   (function () {
     const rowsIn = (input.ihpActive || []).filter(function (r) { return FY27_str_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_str_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])) || FY27_str_(r["Account"]); });
     if (!rowsIn.length) return;
     const ids = {}, names = {};
     rowsIn.forEach(function (r) {
-      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])), s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_str_(r["Account"]).toLowerCase();
+      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_id15_(FY27_idFromUrl_(r["Account Link"]));
+      const s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_nameKey_(r["Account"]);
       if (f) ids[f] = true; if (s) ids[s] = true; if (n) names[n] = true;
+    });
+    // which accounts on the list were never found in the data (a name or ID that does not match is the usual reason an active account would be dropped)
+    const known = { ids: {}, names: {} };
+    const learn = function (full, org, name) { if (full) known.ids[FY27_id15_(full)] = true; if (org) known.ids[FY27_id15_(org)] = true; if (name) known.names[FY27_nameKey_(name)] = true; };
+    base.forEach(function (b) { learn(b.fullId, b.billingId, b.raw["Account Name"]); });
+    otcAll.forEach(function (o) { learn(o.fullId, "", o.accountName); });
+    ihpIgnored.notFound = [];
+    rowsIn.forEach(function (r) {
+      const nm = FY27_str_(r["Account"]); if (!nm) return;
+      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_id15_(FY27_idFromUrl_(r["Account Link"]));
+      const s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"]));
+      if (!(f && known.ids[f]) && !(s && known.ids[s]) && !known.names[FY27_nameKey_(nm)]) ihpIgnored.notFound.push(nm);
     });
     const groups = cfg.IHP_ACTIVE_GROUPS || [];
     ihpIgnored.active = true;
@@ -985,7 +1009,7 @@ function FY27_buildForecast(input, cfg) {
     const byAcct = {};
     const kept = [];
     lines.forEach(function (L) {
-      if (groups.indexOf(L.productGroup) < 0 || ids[FY27_id15_(L.fullId)] || ids[FY27_id15_(L.studentOrgId)] || names[FY27_str_(L.accountName).toLowerCase()]) { kept.push(L); return; }
+      if (groups.indexOf(L.productGroup) < 0 || ids[FY27_id15_(L.fullId)] || ids[FY27_id15_(L.studentOrgId)] || names[FY27_nameKey_(L.accountName)]) { kept.push(L); return; }
       ihpIgnored.lines++; ihpIgnored.baseline += L.baselineAmount; ihpIgnored.forecast += L.forecastAmount;
       const k = L.accountName || L.fullId;
       byAcct[k] = (byAcct[k] || 0) + L.baselineAmount;
@@ -1746,6 +1770,6 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
   };
 }

@@ -405,6 +405,17 @@ function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
 
+/** Account-name key used to match the iHP list to the data: lower case, "&" = "and", punctuation and extra spaces ignored. */
+function FY27_nameKey_(s) {
+  return FY27_str_(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** The Salesforce account ID inside a record link (".../Account/0014u000025PBFfAAO/view", "...?id=001...") or "". */
+function FY27_idFromUrl_(url) {
+  const m = FY27_str_(url).match(/(001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?![A-Za-z0-9])/);
+  return m ? m[1] : "";
+}
+
 /* ---------------- account merges ---------------- */
 
 /**
@@ -1208,14 +1219,27 @@ function FY27_buildForecast(input, cfg) {
   /* ---- 2-. Active iHP accounts: the maintained iHP account list is the reference for the iHP product group ----
    * When the "iHP Active Accounts" tab has rows, an iHP line (baseline-driven or OTC-only) whose account is not on that list is dropped entirely:
    * it is not forecast, not shown, and not counted. Manual add-ons and carry-ins are never dropped. No rows = rule off. */
-  const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [] };
+  const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [], notFound: [] };
   (function () {
     const rowsIn = (input.ihpActive || []).filter(function (r) { return FY27_str_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_str_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])) || FY27_str_(r["Account"]); });
     if (!rowsIn.length) return;
     const ids = {}, names = {};
     rowsIn.forEach(function (r) {
-      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])), s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_str_(r["Account"]).toLowerCase();
+      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_id15_(FY27_idFromUrl_(r["Account Link"]));
+      const s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_nameKey_(r["Account"]);
       if (f) ids[f] = true; if (s) ids[s] = true; if (n) names[n] = true;
+    });
+    // which accounts on the list were never found in the data (a name or ID that does not match is the usual reason an active account would be dropped)
+    const known = { ids: {}, names: {} };
+    const learn = function (full, org, name) { if (full) known.ids[FY27_id15_(full)] = true; if (org) known.ids[FY27_id15_(org)] = true; if (name) known.names[FY27_nameKey_(name)] = true; };
+    base.forEach(function (b) { learn(b.fullId, b.billingId, b.raw["Account Name"]); });
+    otcAll.forEach(function (o) { learn(o.fullId, "", o.accountName); });
+    ihpIgnored.notFound = [];
+    rowsIn.forEach(function (r) {
+      const nm = FY27_str_(r["Account"]); if (!nm) return;
+      const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_id15_(FY27_idFromUrl_(r["Account Link"]));
+      const s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"]));
+      if (!(f && known.ids[f]) && !(s && known.ids[s]) && !known.names[FY27_nameKey_(nm)]) ihpIgnored.notFound.push(nm);
     });
     const groups = cfg.IHP_ACTIVE_GROUPS || [];
     ihpIgnored.active = true;
@@ -1223,7 +1247,7 @@ function FY27_buildForecast(input, cfg) {
     const byAcct = {};
     const kept = [];
     lines.forEach(function (L) {
-      if (groups.indexOf(L.productGroup) < 0 || ids[FY27_id15_(L.fullId)] || ids[FY27_id15_(L.studentOrgId)] || names[FY27_str_(L.accountName).toLowerCase()]) { kept.push(L); return; }
+      if (groups.indexOf(L.productGroup) < 0 || ids[FY27_id15_(L.fullId)] || ids[FY27_id15_(L.studentOrgId)] || names[FY27_nameKey_(L.accountName)]) { kept.push(L); return; }
       ihpIgnored.lines++; ihpIgnored.baseline += L.baselineAmount; ihpIgnored.forecast += L.forecastAmount;
       const k = L.accountName || L.fullId;
       byAcct[k] = (byAcct[k] || 0) + L.baselineAmount;
@@ -1984,7 +2008,7 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
   };
 }
 
@@ -2102,6 +2126,7 @@ function FY27_run() {
     const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
     const ihpSheet = FY27_ensureIhpSheet_();
     const ihp = FY27_gridToRows_(ihpSheet.getDataRange().getValues());
+    FY27_addLinkIds_(ihpSheet, ihp.rows);
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -2238,6 +2263,7 @@ function FY27_writeReview_(ss, result, retention) {
   add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   const ih = s.ihpIgnored || {};
   add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
   (ih.top || []).forEach(function (t, i) { add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
@@ -2453,6 +2479,28 @@ function FY27_ensureIhpSheet_() {
     sh.getRange(1, 1).setNote("Paste the active iHP account list here (the main tab of the iHP Account Database, header row included). Empty tab = no filtering. iHP lines for accounts not on this list are ignored.");
   }
   return sh;
+}
+
+/**
+ * The iHP list's account name is a link to the Salesforce record. Read the link behind each name and keep its account ID on the row
+ * ("Account Link"), so a name that is not spelled like the data still matches by ID. Never fails the build.
+ */
+function FY27_addLinkIds_(sh, rows) {
+  try {
+    const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) return;
+    const hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    let c = -1; hdr.forEach(function (h, i) { if (c < 0 && String(h).trim() === "Account") c = i + 1; });
+    if (c < 0) return;
+    const rich = sh.getRange(2, c, lastRow - 1, 1).getRichTextValues();
+    rows.forEach(function (r) {
+      const rt = rich[r.__row - 2] && rich[r.__row - 2][0];
+      if (!rt) return;
+      let url = rt.getLinkUrl() || "";
+      if (!url && rt.getRuns) rt.getRuns().forEach(function (run) { if (!url && run.getLinkUrl()) url = run.getLinkUrl(); });
+      if (url) r["Account Link"] = url;
+    });
+  } catch (err) { /* links are a bonus; names and IDs still match */ }
 }
 
 /* ---------------- Account Merges tab ---------------- */

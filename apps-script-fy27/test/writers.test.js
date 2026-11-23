@@ -43,7 +43,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", "Session", "Utilities", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_ensureIhpSheet_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -78,6 +78,16 @@ api.FY27_writeBacktest_(ss, bt);
 const msheet = api.FY27_ensureManualSheet_();
 const ihpSh = api.FY27_ensureIhpSheet_();
 assert.ok(ihpSh.writes.length >= 1, "iHP tab header written on first creation");
+// the account name on the iHP list is a link to the Salesforce record: its ID is kept on the row
+{
+  const fake = { getLastRow: () => 3, getLastColumn: () => 2, getRange: (r, c, nr, nc) => ({
+    getValues: () => [["Account", "Customer Type"]],
+    getRichTextValues: () => [[{ getLinkUrl: () => "https://x.lightning.force.com/lightning/r/Account/0014u000025LINKAA1/view" }], [{ getLinkUrl: () => null, getRuns: () => [] }]] }) };
+  const rowsIn = [{ __row: 2, Account: "A" }, { __row: 3, Account: "B" }];
+  api.FY27_addLinkIds_(fake, rowsIn);
+  assert.ok(/0014u000025LINKAA1/.test(rowsIn[0]["Account Link"]));
+  assert.strictEqual(rowsIn[1]["Account Link"], undefined);
+}
 const mg = api.FY27_ensureMergeSheet_();
 api.FY27_writeMergeStatus_(mg, [{ row: 2, status: "Applied: 3 rows now count as X" }]);
 assert.strictEqual(mg.cells["2,4"], "Applied: 3 rows now count as X");

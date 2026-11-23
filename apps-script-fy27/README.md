@@ -137,11 +137,12 @@ Programs that book every two years or prepay are the exception: CSMs add the amo
 `"weight"` restores the old behaviour (At Risk at `DORMANT_PROGRAM_WEIGHT`).
 
 ## Active iHP accounts (`iHP Active Accounts` tab)
-Paste the maintained iHP account list (main tab of the iHP Account Database, with its header row; needs `Account`, `Student Org Account ID`,
-`Business Org Account ID`) into `iHP Active Accounts`. Once it has rows, any `IHP_ACTIVE_GROUPS` (IHUMAN) line, baseline-driven or OTC-only, whose Full ID /
+Paste the maintained iHP account list (main tab of the iHP Account Database, with its header row; needs at least `Account`) into `iHP Active Accounts`.
+Lines match on, in any order: the Business Org ID / Student Org ID columns if present; the **Salesforce ID inside the link behind the account name** (read from the cell's
+hyperlink, so paste with formatting / copy the tab rather than pasting values only); or the **account name**, compared ignoring case, punctuation and `&` vs `and`. Once it has rows, any `IHP_ACTIVE_GROUPS` (IHUMAN) line, baseline-driven or OTC-only, whose Full ID /
 Student Org ID / account name is not on the list is dropped completely (not forecast, not shown). Other product groups of the same account, Manual Add-Ons
 and carry-ins are untouched. The Review tab shows how many lines and baseline $ were ignored and the ten largest accounts; the baseline check subtracts them.
-Empty tab = no filtering. The source database's `Lost 2024-2026` and `SP27 Renewal List` tabs are not used (names only / prospects).
+The Review tab also lists list accounts that matched nothing in the data (name/ID mismatch). Empty tab = no filtering. The source database's `Lost 2024-2026` and `SP27 Renewal List` tabs are not used (names only / prospects).
 
 ## Combining accounts (`Account Merges` tab)
 One row per duplicate: `From ID` (the extra Billing ID / Full ID) and `Into ID` (the main account); either can be a Full ID or a Student Org ID.

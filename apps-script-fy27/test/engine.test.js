@@ -1128,4 +1128,21 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   // matched by Student Org ID or by name too
   assert.strictEqual(run([{ "Account": "", "Student Org Account ID": "0013b00001ORGOFF", "Business Org Account ID": "" }, { "Account": "Acct ONA" }]).lines.length, 3);
 })();
+// 63. iHP list matched on the account NAME (punctuation / & / case ignored) and on the ID inside the Salesforce link behind the name
+(function () {
+  assert.strictEqual(E.FY27_nameKey_("  Texas A&M   International University. "), E.FY27_nameKey_("texas a and m international university"));
+  assert.strictEqual(E.FY27_idFromUrl_("https://kaplan.lightning.force.com/lightning/r/Account/0014u000025PBFfAAO/view"), "0014u000025PBFfAAO");
+  assert.strictEqual(E.FY27_idFromUrl_("https://x.my.salesforce.com/0014u000025PBFf"), "0014u000025PBFf");
+  assert.strictEqual(E.FY27_idFromUrl_("https://example.com/nothing"), "");
+  const IH = (id, org, name) => tab({ "FULL ID": id, "Billing ID": org, "Account Name": name, "Product Group": "IHUMAN", "Product Name": "iHP Traditional & OSCE Cases", "Baseline Amount - Tableau": "5000" });
+  const rows = [IH("0014u000025NAMEAA1", "0013b00001NAME01", "Texas A&M International University"), IH("0014u000025LINKAA1", "0013b00001LINK01", "Totally Different Name"), IH("0014u000025GONEAA1", "0013b00001GONE01", "Dropped College")];
+  const r = E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23), ihpActive: [
+    { "Account": "texas a and m international university." },                                                         // name only
+    { "Account": "Some Other Spelling", "Account Link": "https://x.lightning.force.com/lightning/r/Account/0014u000025LINKAA1/view" },   // name does not match, link does
+    { "Account": "Never Heard Of Them" }                                                                           // on the list, not in the data
+  ] }, CFG);
+  assert.deepStrictEqual(r.lines.map((l) => l.accountName).sort(), ["Texas A&M International University", "Totally Different Name"]);
+  assert.strictEqual(r.stats.ihpIgnored.lines, 1);
+  assert.deepStrictEqual(r.stats.ihpIgnored.notFound, ["Never Heard Of Them"]);
+})();
 console.log("all engine tests passed");

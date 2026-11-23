@@ -111,6 +111,7 @@ function FY27_run() {
     const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
     const ihpSheet = FY27_ensureIhpSheet_();
     const ihp = FY27_gridToRows_(ihpSheet.getDataRange().getValues());
+    FY27_addLinkIds_(ihpSheet, ihp.rows);
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -247,6 +248,7 @@ function FY27_writeReview_(ss, result, retention) {
   add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   const ih = s.ihpIgnored || {};
   add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
   (ih.top || []).forEach(function (t, i) { add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
@@ -462,6 +464,28 @@ function FY27_ensureIhpSheet_() {
     sh.getRange(1, 1).setNote("Paste the active iHP account list here (the main tab of the iHP Account Database, header row included). Empty tab = no filtering. iHP lines for accounts not on this list are ignored.");
   }
   return sh;
+}
+
+/**
+ * The iHP list's account name is a link to the Salesforce record. Read the link behind each name and keep its account ID on the row
+ * ("Account Link"), so a name that is not spelled like the data still matches by ID. Never fails the build.
+ */
+function FY27_addLinkIds_(sh, rows) {
+  try {
+    const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) return;
+    const hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    let c = -1; hdr.forEach(function (h, i) { if (c < 0 && String(h).trim() === "Account") c = i + 1; });
+    if (c < 0) return;
+    const rich = sh.getRange(2, c, lastRow - 1, 1).getRichTextValues();
+    rows.forEach(function (r) {
+      const rt = rich[r.__row - 2] && rich[r.__row - 2][0];
+      if (!rt) return;
+      let url = rt.getLinkUrl() || "";
+      if (!url && rt.getRuns) rt.getRuns().forEach(function (run) { if (!url && run.getLinkUrl()) url = run.getLinkUrl(); });
+      if (url) r["Account Link"] = url;
+    });
+  } catch (err) { /* links are a bonus; names and IDs still match */ }
 }
 
 /* ---------------- Account Merges tab ---------------- */
