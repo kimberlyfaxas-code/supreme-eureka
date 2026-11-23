@@ -1193,11 +1193,26 @@ function FY27_buildForecast(input, cfg) {
   const order = [];
   detail.forEach(function (d) {
     d.forecastQuarter = FY27_quarterOf_(d.forecastMonth);
-    const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, d.expectation, d.isManual ? "M" + d.manualRow : ""].join("|");
+    // Med / Allied Health are flat fees booked per product group, not per product: every category of the group in a month is one line
+    const flat = !d.isManual && (cfg.FLAT_FEE_GROUPS || []).indexOf(d.productGroup) >= 0;
+    const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, flat ? "" : d.expectation, d.isManual ? "M" + d.manualRow : ""].join("|");
     if (!groups[gk]) { groups[gk] = []; order.push(gk); }
     groups[gk].push(d);
   });
-  const grouped = order.map(function (gk) { return FY27_mergeLines_(groups[gk], makeLine); });
+  const grouped = order.map(function (gk) {
+    const parts = groups[gk];
+    const L = FY27_mergeLines_(parts, makeLine);
+    const cats = {};
+    parts.forEach(function (p) { cats[p.expectation] = (cats[p.expectation] || 0) + (Number(p.forecastAmount) || 0); });
+    const names = Object.keys(cats);
+    if (names.length > 1) {
+      // categories combined into one line: the one carrying the most dollars names the line; the weight stays the blend of the parts
+      names.sort(function (a, b) { return cats[b] - cats[a]; });
+      L.expectation = names[0];
+      L.flags.push("Combined by product group: " + names.map(function (n) { return n + " $" + Math.round(cats[n]).toLocaleString(); }).join(", "));
+    }
+    return L;
+  });
 
   /* ---- 4. Apply manual overrides (keyed on the grouped line so they survive refreshes) ---- */
   // The key must not change when a data refresh changes a line's category, so it holds account, product group, month and booked-or-not only;

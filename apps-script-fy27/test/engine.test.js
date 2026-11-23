@@ -1197,4 +1197,21 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r.coverage.reduce((s, c) => s + c.early, 0), r.stats.earlyBooked.value);
   CFG.EARLY_BOOKED_TREATMENT = "keep";
 })();
+// 67. Med / Allied Health: all products and categories of the group in a month are one line (flat fee per group); other groups stay split by category
+(function () {
+  const M = (name, amt, month, extra) => tab(Object.assign({ "FULL ID": "0014u000025MEDALL01", "Product Group": "MED COURSE", "Product Name": name, "Baseline Amount - Tableau": String(amt),
+    "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": month.replace("2026", "2027") }, extra || {}));
+  const rows = [M("Step 1 Live Online", 20000, "2/1/2026"), M("Installment Plan", 3000, "2/1/2026"), M("Step 2 CK", 1500, "2/1/2026"),
+    tab({ "FULL ID": "0014u000025MEDALL01", "Product Group": "ALLIED HEALTH COURSE", "Product Name": "Allied A", "Baseline Amount - Tableau": "4000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })];
+  const r = E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const med = r.lines.filter((l) => l.productGroup === "MED COURSE");
+  assert.strictEqual(med.length, 1, "one Med line per account x month");
+  assert.strictEqual(med[0].baselineAmount, 24500);
+  assert.ok(/Step 1 Live Online/.test(med[0].productName) && /Installment Plan/.test(med[0].productName));
+  assert.strictEqual(r.lines.filter((l) => l.productGroup === "ALLIED HEALTH COURSE").length, 1, "Allied is its own line, not merged into Med");
+  assert.strictEqual(r.detail.filter((l) => l.productGroup === "MED COURSE").length, 3, "detail keeps every product");
+  const total = (a) => a.reduce((s, l) => s + l.weightedAmount, 0);
+  assert.ok(Math.abs(total(r.lines) - total(r.detail)) < 0.02, "combining must not change the weighted total");
+  assert.ok(Math.abs(r.lines.reduce((s, l) => s + l.forecastAmount, 0) - r.detail.reduce((s, l) => s + l.forecastAmount, 0)) < 0.02);
+})();
 console.log("all engine tests passed");

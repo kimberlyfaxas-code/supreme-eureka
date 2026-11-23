@@ -129,6 +129,11 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Med / Allied Health: one line per product group
+`FLAT_FEE_GROUPS` (MED COURSE, ALLIED HEALTH COURSE) are flat fees booked per product group, so all products and categories of the group in a month are **one line**
+per account x month (each group separately; Med and Allied are never merged). The line is named by the category carrying the most dollars, the weight is the blend of its
+parts (the weighted total is unchanged) and a flag lists the combined categories. `Forecast Detail` still has one row per product. Line keys for these groups change once.
+
 ## New / dormant programs start at $0
 `DORMANT_PROGRAM_ACTION = "zero"` (default): a first-time OTC cohort (no cohort code) for an account + program (family) with no booking in the baseline
 year (never, or last booked earlier, e.g. 2024) is `Not Expected`, reason `No Revenue This Term`, **$0**, with the OTC value kept in `Value If Booked`
