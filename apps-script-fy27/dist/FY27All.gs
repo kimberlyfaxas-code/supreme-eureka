@@ -1765,12 +1765,13 @@ function FY27_writeReview_(ss, result, retention) {
   // what the forecast is made of
   const compHdrs = [];
   [["Forecast category", "byCategory", true], ["Forecast source", "bySource", false], ["Weight basis", "bySegment", false]].forEach(function (sec) {
-    const ch = add([sec[0], "Rows", "Full value $", "Weighted $", sec[2] ? "Weight" : ""]);
+    const ch = add([sec[0], "Rows", "Full value $", "Weighted $", "Effective weight"]);
     compHdrs.push(ch);
     const data = s.composition[sec[1]];
     Object.keys(data).sort(function (a, b) { return data[b].full - data[a].full; }).forEach(function (k) {
       const x = data[k];
-      const rr = add([k, x.n, x.full, x.weighted, sec[2] ? (FY27_CFG.WEIGHTS[k] === undefined ? 1 : FY27_CFG.WEIGHTS[k]) : ""]);
+      // effective weight = weighted / full (a category can mix segment weights, e.g. Pending Contract is 60-85% by how long ago the contract ended)
+      const rr = add([k, x.n, x.full, x.weighted, x.full ? x.weighted / x.full : ""]);
       fmt.push([rr, 2, "#,##0"], [rr, 3, "$#,##0"], [rr, 4, "$#,##0"], [rr, 5, "0%"]);
     });
     add([]);
