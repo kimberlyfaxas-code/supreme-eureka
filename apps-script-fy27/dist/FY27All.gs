@@ -15,6 +15,7 @@ const FY27_CFG = {
   // so they are found by prefix (first match in tab order wins; exact name tried first).
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
+    MERGES: "Account Merges",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",
@@ -400,6 +401,97 @@ function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
 
+/* ---------------- account merges ---------------- */
+
+/**
+ * Account Merges tab: "count this ID as that account". Rows of every input that carry the From ID (as a Full ID or a Student Org / Billing ID) are
+ * rewritten to the Into account (its IDs, name, CSM, rating...) BEFORE anything is matched, so baseline, OTC cohorts, overrides and manual lines
+ * all behave as one account. Chains (A into B, B into C) are followed. Returns copies; the inputs are not touched.
+ * merges: [{ "From ID", "Into ID", "Comment", __row }] -> results [{row, status}]
+ */
+function FY27_applyMerges_(input) {
+  const merges = (input.merges || []).filter(function (m) { return FY27_str_(m["From ID"]) || FY27_str_(m["Into ID"]); });
+  const results = [];
+  if (!merges.length) return { input: input, results: results };
+  const key = function (v) { return FY27_id15_(v); };
+  // find the account behind an ID: first Tableau row, else Salesforce row
+  const acct = {};
+  const fromKeys = {};
+  merges.forEach(function (m) { const f = key(m["From ID"]); if (f) fromKeys[f] = true; });
+  // a row that carries a From ID is never the description of the Into account (the duplicate may share the Into account's Full ID)
+  const isFromRow = function (r) { return !!(fromKeys[key(r["Billing ID"])] || fromKeys[key(r["Student Org Id"])] || (fromKeys[key(r["FULL ID"])] && !key(r["Billing ID"]))); };
+  const target = function (id) {
+    const k = key(id);
+    if (acct[k] !== undefined) return acct[k];
+    let found = null;
+    (input.tableau || []).some(function (r) { if (!isFromRow(r) && (key(r["FULL ID"]) === k || key(r["Billing ID"]) === k)) { found = { src: "t", r: r }; return true; } return false; });
+    if (!found) (input.salesforce || []).some(function (r) { if (!isFromRow(r) && (key(r["FULL ID"]) === k || key(r["Student Org Id"]) === k)) { found = { src: "s", r: r }; return true; } return false; });
+    acct[k] = found;
+    return found;
+  };
+  const into = {};   // from key -> into key
+  merges.forEach(function (m) {
+    const f = key(m["From ID"]), t = key(m["Into ID"]);
+    if (!f || !t) { results.push({ row: m.__row, status: "NOT APPLIED: both From ID and Into ID are needed" }); return; }
+    if (f === t) { results.push({ row: m.__row, status: "NOT APPLIED: From and Into are the same account" }); return; }
+    if (!target(m["Into ID"])) { results.push({ row: m.__row, status: "NOT APPLIED: Into ID not found in the Tableau or Salesforce data" }); return; }
+    into[f] = t; m.__ok = true; m.__f = f;
+  });
+  const finalOf = function (k) { let n = 0; while (into[k] && n++ < 10) k = into[k]; return k; };
+  const info = {};
+  Object.keys(into).forEach(function (f) {
+    const t = finalOf(f);
+    if (t === f) return;
+    const tt = target(t);
+    const r = tt.r;
+    info[f] = tt.src === "t" ? {
+      full: r["FULL ID"], bill: r["Billing ID"], name: r["Account Name"], nameOrg: r["Account Name with Billing ID"], csm: r["Client Success Manager"], rating: r["Rating"],
+      owner: r["Account Owner"], parent: r["Parent Account"], parentId: r["Parent Account ID"]
+    } : { full: r["FULL ID"], bill: r["Student Org Id"], name: r["Account Name"], nameOrg: r["Account Name"] + (r["Student Org Id"] ? " (" + r["Student Org Id"] + ")" : ""), csm: r["Client Success Manager"], rating: r["Rating"], owner: r["Account Owner"], parent: r["Parent Account"], parentId: r["Parent Account ID"] };
+  });
+  const counts = {};
+  const bump = function (f) { counts[f] = (counts[f] || 0) + 1; };
+  const set = function (o, k, v) { if (v !== undefined && v !== null && String(v) !== "") o[k] = v; };
+  // [rowObj, headers for: full ID, org ID] per source
+  const remap = function (rows, fullCols, orgCols, apply) {
+    return (rows || []).map(function (r) {
+      let f = "";
+      fullCols.concat(orgCols).forEach(function (c) { const k = key(r[c]); if (!f && k && info[k]) f = k; });
+      if (!f) return r;
+      const o = {}; for (const k in r) o[k] = r[k];
+      apply(o, info[f]);
+      bump(f);
+      return o;
+    });
+  };
+  const out = {}; for (const k in input) out[k] = input[k];
+  out.tableau = remap(input.tableau, ["FULL ID"], ["Billing ID"], function (o, t) {
+    set(o, "FULL ID", t.full); set(o, "Billing ID", t.bill); set(o, "Account Name", t.name); set(o, "Account Name with Billing ID", t.nameOrg);
+    set(o, "Client Success Manager", t.csm); set(o, "Rating", t.rating); set(o, "Account Owner", t.owner); set(o, "Parent Account", t.parent); set(o, "Parent Account ID", t.parentId);
+  });
+  out.otc = remap(input.otc, ["Full ID", "account_business_org_id"], [], function (o, t) {
+    if (o["Full ID"] !== undefined) set(o, "Full ID", t.full); if (o["account_business_org_id"] !== undefined) set(o, "account_business_org_id", t.full); set(o, "Account Name", t.name);
+  });
+  out.adjustments = remap(input.adjustments, ["FULL ID"], ["Student Org ID"], function (o, t) {
+    set(o, "FULL ID", t.full); set(o, "Student Org ID", t.bill); set(o, "Account Name", t.name); set(o, "Account Name with Student Org", t.nameOrg);
+    set(o, "Client Success Manager", t.csm); set(o, "Rating", t.rating);
+  });
+  out.manual = remap(input.manual, ["Full ID"], ["Student Org ID"], function (o, t) {
+    set(o, "Full ID", t.full); set(o, "Student Org ID", t.bill); set(o, "Account Name", t.name);
+  });
+  out.carry = remap(input.carry, ["Account Full ID"], ["Student Org ID"], function (o, t) {
+    set(o, "Account Full ID", t.full); set(o, "Student Org ID", t.bill); set(o, "Account Name", t.name); set(o, "Current CSM", t.csm); set(o, "Health Rating", t.rating);
+  });
+  merges.forEach(function (m) {
+    if (!m.__ok) return;
+    const f = m.__f;
+    if (!info[f]) { results.push({ row: m.__row, status: "NOT APPLIED: merges back into itself (check the chain)" }); return; }
+    const n = counts[f] || 0;
+    results.push({ row: m.__row, status: n ? "Applied: " + n + " rows now count as " + info[f].name : "NOT APPLIED: From ID not found in any data tab (check the ID)" });
+  });
+  return { input: out, results: results };
+}
+
 /* ---------------- normalizers ---------------- */
 
 function FY27_normOtc_(r, cfg) {
@@ -531,6 +623,8 @@ function FY27_buildHistory_(otc, cfg) {
  * @return {{lines:Array, review:Array, writeback:Object, coverage:Array, stats:Object}}
  */
 function FY27_buildForecast(input, cfg) {
+  const mergeApplied = FY27_applyMerges_(input);
+  input = mergeApplied.input;
   const year = cfg.FORECAST_YEAR;
   const now = input.now || new Date();
   const actualsThrough = cfg.ACTUALS_THROUGH === "auto"
@@ -1391,6 +1485,7 @@ function FY27_buildForecast(input, cfg) {
       })(),
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
+      mergeResults: mergeApplied.results,
       carry: carryStats,
       derivedAdjustments: derivedAdj,
       likelyAdjustments: likelyAdj,
@@ -1785,6 +1880,9 @@ function FY27_readmeLines_(cfg) {
     ["TIMING vs BASELINE"],
     ["Early / On time / Late is worked out for you from the forecast month. To move a month, use SET: Month."],
     [""],
+    ["SAME ACCOUNT, TWO IDs (e.g. a separate Billing ID created just for one booking)"],
+    ["Add a row on the '" + cfg.SHEETS.MERGES + "' tab: From ID = the duplicate, Into ID = the main account (either can be a Full ID or Student Org ID). After the next refresh both count as one account. The Status column confirms."],
+    [""],
     ["THE 2026 NOV/DEC LINK"],
     ["Booked early: a " + cfg.FORECAST_YEAR + " cohort that is already booked now counts in " + (cfg.FORECAST_YEAR - 1) + " bookings. It stays on its baseline row but shows Not Expected, reason 'Booked in " + (cfg.FORECAST_YEAR - 1) + "', $0."],
     ["Pushed out: an open " + (cfg.FORECAST_YEAR - 1) + " Nov/Dec line moves into " + cfg.FORECAST_YEAR + " when its Forecast Month is changed to " + cfg.FORECAST_YEAR + " on the '" + cfg.SHEETS.CARRY + "' tab (source '" + cfg.SOURCES.CARRY + "')."],
@@ -1814,7 +1912,7 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_readmeLines_: FY27_readmeLines_
   };
 }
 
@@ -1928,6 +2026,8 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const mergeSheet = FY27_ensureMergeSheet_();
+    const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -1936,7 +2036,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -1962,6 +2062,7 @@ function FY27_run() {
     FY27_writeCsmSheet_(ss, result.lines, ov.rows, result.stats.overrideStatus);
     FY27_writeOverrideStatus_(ovSheet, result.stats.overrideStatus);
     FY27_writeManualStatus_(manualSheet, result.stats.manualResults);
+    FY27_writeMergeStatus_(mergeSheet, result.stats.mergeResults);
     FY27_ensureReadMe_();
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
@@ -2249,6 +2350,32 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Account Merges tab ---------------- */
+
+const FY27_MERGE_HEADER = ["From ID", "Into ID", "Comment", "Status"];
+
+/**
+ * "Count this ID as that account": one row per duplicate. From ID / Into ID can each be a Full ID or a Student Org (Billing) ID.
+ * Applied at the start of every refresh, to every input tab, so the two IDs become one account everywhere (baseline, OTC, overrides, manual lines).
+ */
+function FY27_ensureMergeSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.MERGES);
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.MERGES);
+  const cur = sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).getValues()[0];
+  if (!FY27_MERGE_HEADER.every(function (h, i) { return cur[i] === h; })) sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).setValues([FY27_MERGE_HEADER]);
+  sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).setFontWeight("bold").setBackground("#FFF2CC");
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 190); sh.setColumnWidth(2, 190); sh.setColumnWidth(3, 300); sh.setColumnWidth(4, 360);
+  sh.getRange(1, 1).setNote("The duplicate ID (the extra Billing ID / Full ID). Copy it from the Tableau or CSM Forecast tab.");
+  sh.getRange(1, 2).setNote("The account it should be counted as (the main one). Its name, CSM and rating are used for every row of the From ID.");
+  return sh;
+}
+
+function FY27_writeMergeStatus_(sh, results) {
+  (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 4).setValue(r.status); });
 }
 
 /* ---------------- Read Me tab ---------------- */

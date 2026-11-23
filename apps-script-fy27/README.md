@@ -127,6 +127,12 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Combining accounts (`Account Merges` tab)
+One row per duplicate: `From ID` (the extra Billing ID / Full ID) and `Into ID` (the main account); either can be a Full ID or a Student Org ID.
+At the start of every refresh, every input (Tableau, Adjustments, OTC, Manual Add-Ons, the Nov/Dec tab) has the From ID rewritten to the Into account's
+IDs, name, CSM and rating, so baseline rows, OTC cohorts and overrides behave as one account and lines group together. Chains are followed.
+The `Status` column says `Applied: N rows ...` or `NOT APPLIED: reason` (ID not found, same account, ...). Merges do not edit the source tabs.
+
 ## Link to the current 2026 Nov/Dec forecast
 Paste the current 2026 forecast (same columns as the 2026 forecast file) into the tab `FY26Nov_DecForecast` (`SHEETS.CARRY`); the tab is optional.
 - **Booked early** (`EARLY_BOOKED_TREATMENT = "prior_year"`): while "now" is before 2027, a 2027 cohort whose OTC order is already booked is a

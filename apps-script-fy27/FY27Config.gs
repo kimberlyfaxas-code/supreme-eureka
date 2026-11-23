@@ -10,6 +10,7 @@ const FY27_CFG = {
   // so they are found by prefix (first match in tab order wins; exact name tried first).
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
+    MERGES: "Account Merges",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
     OTC_PREFIX: "otc_",

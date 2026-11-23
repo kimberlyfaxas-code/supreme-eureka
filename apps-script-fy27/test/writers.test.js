@@ -43,7 +43,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", "Session", "Utilities", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -76,6 +76,9 @@ api.FY27_writeBacktest_(ss, bt);
 
 // ---- CSM tab, manual tab, read me, overrides status, edit sync
 const msheet = api.FY27_ensureManualSheet_();
+const mg = api.FY27_ensureMergeSheet_();
+api.FY27_writeMergeStatus_(mg, [{ row: 2, status: "Applied: 3 rows now count as X" }]);
+assert.strictEqual(mg.cells["2,4"], "Applied: 3 rows now count as X");
 api.FY27_ensureReadMe_();
 api.FY27_writeCsmSheet_(ss, res.lines, [], res.stats.overrideStatus);
 const csm = sheets[CFG.SHEETS.CSM];

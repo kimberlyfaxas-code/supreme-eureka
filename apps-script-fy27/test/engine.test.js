@@ -1023,4 +1023,34 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.ok(jan[0].flags.some((f) => f.indexOf("replaces the OTC-only estimate") >= 0));
   assert.strictEqual(r.stats.carry.replaced + r.stats.carry.added, 1);
 })();
+// 58. Account merges: a second Billing ID created for one booking counts as the main account (baseline, OTC, name, CSM) and groups with it
+(function () {
+  const MAIN = "0014u000025MAINAA", MAINORG = "0013b00001MAINORG", DUPORG = "0013b00001DUPORG";
+  const rows = [
+    tab({ "FULL ID": MAIN, "Billing ID": MAINORG, "Account Name": "Johns Hopkins", "Client Success Manager": "Pat", "Rating": "Green", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "1000" }),
+    tab({ "FULL ID": MAIN, "Billing ID": DUPORG, "Account Name": "JHU booking acct", "Client Success Manager": "Other", "Rating": "Red", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "500" })
+  ];
+  const run = (merges) => E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], merges, now: new Date(2026, 10, 23) }, CFG);
+  const apart = run([]);
+  assert.strictEqual(apart.lines.length, 2, "two billing IDs = two lines without a merge");
+  const joined = run([{ "From ID": DUPORG, "Into ID": MAINORG, __row: 2 }]);
+  assert.strictEqual(joined.lines.length, 1, "merged into one line");
+  assert.strictEqual(joined.lines[0].baselineAmount, 1500);
+  assert.strictEqual(joined.lines[0].accountName, "Johns Hopkins");
+  assert.strictEqual(joined.lines[0].csm, "Pat");
+  assert.strictEqual(joined.lines[0].studentOrgId, MAINORG);
+  assert.ok(/^Applied: 1 rows/.test(joined.stats.mergeResults[0].status), joined.stats.mergeResults[0].status);
+  // From ID typed as a different account's Full ID, OTC rows follow
+  const OTHER = "0014u000025OTHER0";
+  const r2 = E.FY27_buildForecast({ tableau: [rows[0], tab({ "FULL ID": OTHER, "Billing ID": "0013b00001OTHERORG", "Account Name": "JHU Med", "Baseline Amount - Tableau": "700", "Baseline Booking Month - Tableau": "2/1/2026" })],
+    otc: [otc({ "Full ID": OTHER, "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "700" })], salesforce: [], overrides: [], adjustments: [],
+    merges: [{ "From ID": OTHER, "Into ID": MAIN, __row: 2 }], now: new Date(2026, 10, 23) }, CFG);
+  assert.ok(r2.lines.every((L) => L.accountName === "Johns Hopkins" && L.fullId.slice(0, 15) === MAIN.slice(0, 15)));
+  assert.strictEqual(r2.lines.reduce((s, L) => s + L.baselineAmount, 0), 1700, "both baselines kept under the main account");
+  assert.ok(r2.lines.every((L) => L.studentOrgId === MAINORG));
+  // bad rows say why
+  const bad = run([{ "From ID": "NOPE", "Into ID": MAINORG, __row: 2 }, { "From ID": DUPORG, "Into ID": "MISSING", __row: 3 }, { "From ID": DUPORG, "Into ID": DUPORG, __row: 4 }]);
+  const st = bad.stats.mergeResults.map((x) => x.status).join(" / ");
+  assert.ok(/From ID not found/.test(st) && /Into ID not found/.test(st) && /same account/.test(st), st);
+})();
 console.log("all engine tests passed");

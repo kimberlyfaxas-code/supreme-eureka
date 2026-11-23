@@ -107,6 +107,8 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const mergeSheet = FY27_ensureMergeSheet_();
+    const merges = FY27_gridToRows_(mergeSheet.getDataRange().getValues());
     const carrySheet = ss.getSheetByName(cfg.SHEETS.CARRY);                                    // optional: current prior-year Nov/Dec forecast
     const carry = carrySheet ? FY27_gridToRows_(carrySheet.getDataRange().getValues()) : { rows: [] };
     const adjSheet = cfg.USE_ADJUSTMENTS_TAB ? ss.getSheetByName(cfg.SHEETS.ADJUSTMENTS) : null;   // optional: negative adjustments live here
@@ -115,7 +117,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -141,6 +143,7 @@ function FY27_run() {
     FY27_writeCsmSheet_(ss, result.lines, ov.rows, result.stats.overrideStatus);
     FY27_writeOverrideStatus_(ovSheet, result.stats.overrideStatus);
     FY27_writeManualStatus_(manualSheet, result.stats.manualResults);
+    FY27_writeMergeStatus_(mergeSheet, result.stats.mergeResults);
     FY27_ensureReadMe_();
     if (cfg.WRITE_BACK_TO_TABLEAU) FY27_writeBackTableau_(tabSheet, tableau, result.writeback);
 
@@ -428,6 +431,32 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Account Merges tab ---------------- */
+
+const FY27_MERGE_HEADER = ["From ID", "Into ID", "Comment", "Status"];
+
+/**
+ * "Count this ID as that account": one row per duplicate. From ID / Into ID can each be a Full ID or a Student Org (Billing) ID.
+ * Applied at the start of every refresh, to every input tab, so the two IDs become one account everywhere (baseline, OTC, overrides, manual lines).
+ */
+function FY27_ensureMergeSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.MERGES);
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.MERGES);
+  const cur = sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).getValues()[0];
+  if (!FY27_MERGE_HEADER.every(function (h, i) { return cur[i] === h; })) sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).setValues([FY27_MERGE_HEADER]);
+  sh.getRange(1, 1, 1, FY27_MERGE_HEADER.length).setFontWeight("bold").setBackground("#FFF2CC");
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 190); sh.setColumnWidth(2, 190); sh.setColumnWidth(3, 300); sh.setColumnWidth(4, 360);
+  sh.getRange(1, 1).setNote("The duplicate ID (the extra Billing ID / Full ID). Copy it from the Tableau or CSM Forecast tab.");
+  sh.getRange(1, 2).setNote("The account it should be counted as (the main one). Its name, CSM and rating are used for every row of the From ID.");
+  return sh;
+}
+
+function FY27_writeMergeStatus_(sh, results) {
+  (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 4).setValue(r.status); });
 }
 
 /* ---------------- Read Me tab ---------------- */
