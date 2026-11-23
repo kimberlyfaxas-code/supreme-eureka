@@ -88,6 +88,11 @@ const FY27_CFG = {
   // iHP product group groups checked against the "iHP Active Accounts" tab (paste the maintained iHP account list there). When the tab has rows, an iHP line
   // for an account that is not on it is ignored completely. No rows = no filtering.
   IHP_ACTIVE_GROUPS: ["IHUMAN"],
+  // iHP accounts paid by students / bookstore (or hybrid) book over two months (the month after the purchases). An iHP line with no baseline row is split by
+  // IHP_SPLIT_SHARES over its month and the following one; the payment method comes from the "Payment Method" column of the iHP list tab (fragments matched, ignoring case).
+  // Baseline-driven lines already carry their own monthly split. A part that would book after the forecast year is left out. Set IHP_SPLIT_PAYMENT to [] to turn off.
+  IHP_SPLIT_PAYMENT: ["student pay", "bookstore pay", "hybrid"],
+  IHP_SPLIT_SHARES: [0.5, 0.5],
   CARRY_OPEN_SLIP_RATE: 0,
   CARRY_OPEN_SLIP_MONTH: 1,
 

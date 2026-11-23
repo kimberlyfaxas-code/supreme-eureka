@@ -1243,4 +1243,32 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   CFG.DORMANT_PROGRAM_ACTION = "weight";
   assert.notStrictEqual(r3.detail.find((l) => /Prep Select/.test(l.productName)).reason, "No Revenue This Term");
 })();
+// 69. Student-pay / hybrid iHP accounts: a cohort with no baseline is split over its month and the next; institution pay and baseline lines are not
+(function () {
+  const IH = (id, extra) => tab(Object.assign({ "FULL ID": id, "Billing ID": "0013b00001" + id.slice(-5), "Account Name": "Acct " + id.slice(-5), "Product Group": "IHUMAN", "Product Name": "iHP Traditional & OSCE Cases",
+    "Baseline Amount - Tableau": "1000", "Baseline Booking Month - Tableau": "3/1/2026", "Forecast Month - Tableau": "3/1/2027" }, extra || {}));
+  const mk = (id, pm) => ({ tab: IH(id), otc: otc({ "Full ID": id, "Product Group": "IHUMAN", "Product Name": "iHP Traditional & OSCE Cases", "program": "iHP", "cohort_name": "Fall cohort", "order_estimated_start_date": "2027-08-01", "Estimated or Actual Order Total": "10000" }),
+    list: { "Account": "Acct " + id.slice(-5), "Business Org Account ID": id, "Payment Method": pm } });
+  const run = (parts, split) => {
+    const old = CFG.IHP_SPLIT_PAYMENT; if (split === false) CFG.IHP_SPLIT_PAYMENT = [];
+    const r = E.FY27_buildForecast({ tableau: parts.map((p) => p.tab), otc: parts.map((p) => p.otc), salesforce: [], overrides: [], adjustments: [], ihpActive: parts.map((p) => p.list), now: new Date(2026, 10, 23) }, CFG);
+    CFG.IHP_SPLIT_PAYMENT = old; return r;
+  };
+  const student = mk("0014u000025SPLIT001", "Student Pay, Pay as you go, Single Term");
+  const r = run([student]);
+  const cohort = r.lines.filter((l) => l.baselineAmount === 0);
+  assert.deepStrictEqual(cohort.map((l) => l.forecastMonth).sort(), ["2027-08", "2027-09"], JSON.stringify(cohort.map((l) => [l.forecastMonth, l.forecastAmount])));
+  assert.ok(Math.abs(cohort.reduce((s, l) => s + l.forecastAmount, 0) - r.detail.filter((l) => l.baselineAmount === 0).reduce((s, l) => s + l.forecastAmount, 0)) < 0.02, "split does not change the total");
+  assert.ok(cohort.every((l) => l.flags.some((f) => /books over 2 months/.test(f))));
+  assert.strictEqual(r.stats.ihpSplit.lines, 1);
+  const inst = run([mk("0014u000025SPLIT002", "Institution Pay, Flat Fee, License-Based")]);
+  assert.strictEqual(inst.lines.filter((l) => l.baselineAmount === 0).length, 1, "institution pay is not split");
+  const off = run([student], false);
+  assert.strictEqual(off.lines.filter((l) => l.baselineAmount === 0).length, 1, "setting off = no split");
+  assert.strictEqual(r.lines.filter((l) => l.baselineAmount > 0).length, 1, "baseline lines are never split");
+  // a December cohort: the part that books next year is left out
+  const dec = mk("0014u000025SPLIT003", "Student Pay, Pay as you go, Single Term"); dec.otc["order_estimated_start_date"] = "2027-12-01";
+  const rd = run([dec]);
+  assert.deepStrictEqual(rd.lines.filter((l) => l.baselineAmount === 0).map((l) => l.forecastMonth), ["2027-12"]);
+})();
 console.log("all engine tests passed");

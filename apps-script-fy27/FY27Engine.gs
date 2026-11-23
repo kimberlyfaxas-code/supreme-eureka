@@ -990,12 +990,20 @@ function FY27_buildForecast(input, cfg) {
   /* ---- 2-. Active iHP accounts: the maintained iHP account list is the reference for the iHP product group ----
    * When the "iHP Active Accounts" tab has rows, an iHP line (baseline-driven or OTC-only) whose account is not on that list is dropped entirely:
    * it is not forecast, not shown, and not counted. Manual add-ons and carry-ins are never dropped. No rows = rule off. */
+  let ihpPay = { ids: {}, names: {} };
   const ihpIgnored = { active: false, activeAccounts: 0, lines: 0, baseline: 0, forecast: 0, accounts: 0, top: [], notFound: [] };
   (function () {
     const rowsIn = (input.ihpActive || []).filter(function (r) { return FY27_str_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_str_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])) || FY27_str_(r["Account"]); });
     if (!rowsIn.length) return;
     const ids = {}, names = {};
+    ihpPay = { ids: {}, names: {} };
     rowsIn.forEach(function (r) {
+      const pm = FY27_str_(FY27_pick_(r, ["Payment Method"]));
+      if (pm) {
+        [FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])), FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), FY27_id15_(FY27_idFromUrl_(r["Account Link"]))]
+          .forEach(function (k) { if (k) ihpPay.ids[k] = pm; });
+        if (FY27_nameKey_(r["Account"])) ihpPay.names[FY27_nameKey_(r["Account"])] = pm;
+      }
       const f = FY27_id15_(FY27_pick_(r, ["Business Org Account ID", "Full ID"])) || FY27_id15_(FY27_idFromUrl_(r["Account Link"]));
       const s = FY27_id15_(FY27_pick_(r, ["Student Org Account ID", "Student Org ID"])), n = FY27_nameKey_(r["Account"]);
       if (f) ids[f] = true; if (s) ids[s] = true; if (n) names[n] = true;
@@ -1056,6 +1064,38 @@ function FY27_buildForecast(input, cfg) {
     lines = keep;
     earlyBooked.value = FY27_round2_(earlyBooked.value); earlyBooked.onlyValue = FY27_round2_(earlyBooked.onlyValue);
   }
+
+  /* ---- 2a2. Student-pay / hybrid iHP accounts: the booking lands over two months ----
+   * Students buy through the term, and the booking follows the month after the purchases, so an iHP cohort that has no baseline row (a baseline already carries
+   * its own monthly split) is spread over its month and the next. The payment method comes from the "Payment Method" column of the iHP list tab. */
+  const ihpSplit = { lines: 0, value: 0 };
+  (function () {
+    const shares = cfg.IHP_SPLIT_SHARES || [];
+    if (shares.length < 2 || !(cfg.IHP_SPLIT_PAYMENT || []).length) return;
+    const out = [];
+    lines.forEach(function (L) {
+      out.push(L);
+      if (L.isManual || cfg.IHP_ACTIVE_GROUPS.indexOf(L.productGroup) < 0 || L.status !== "Forecast" || L.baselineAmount > 0 || !(L.forecastAmount > 0) || L.expectation === "Not Expected") return;
+      const pm = ihpPay.ids[FY27_id15_(L.fullId)] || ihpPay.ids[FY27_id15_(L.studentOrgId)] || ihpPay.names[FY27_nameKey_(L.accountName)] || "";
+      if (!FY27_matchesAny_(pm, cfg.IHP_SPLIT_PAYMENT)) return;
+      const total = L.forecastAmount, totalV = L.valueIfBooked || 0;
+      const label = shares.map(function (s) { return Math.round(s * 100) + "%"; }).join(" / ");
+      L.flags.push("Student / bookstore pay (" + pm + "): books over " + shares.length + " months (" + label + ") - the month after the purchases");
+      let first = true;
+      shares.forEach(function (s, i) {
+        const month = FY27_addMonths_(L.forecastMonth, i);
+        if (FY27_yearOf_(month) !== year) { return; }                              // the part that books after year end is not this year's
+        const P = first ? L : makeLine(L);
+        first = false;
+        if (P !== L) { P.flags = L.flags.slice(); out.push(P); }
+        P.forecastMonth = month; P.forecastAmount = FY27_round2_(total * s); P.valueIfBooked = FY27_round2_(totalV * s);
+        P.estStudents = P === L ? L.estStudents : P.estStudents;
+      });
+      ihpSplit.lines++; ihpSplit.value += total;
+    });
+    lines = out;
+    ihpSplit.value = FY27_round2_(ihpSplit.value);
+  })();
 
   /* ---- 2b. Manual add-ons (the "Manual Add-Ons" tab): lines the data does not know about ---- */
   const manualResults = [];
@@ -1360,6 +1400,7 @@ function FY27_buildForecast(input, cfg) {
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
       ihpIgnored: ihpIgnored,
+      ihpSplit: ihpSplit,
       mergeResults: mergeApplied.results,
       carry: carryStats,
       derivedAdjustments: derivedAdj,
