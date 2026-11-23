@@ -1195,9 +1195,11 @@ function FY27_buildForecast(input, cfg) {
   // The key must not change when a data refresh changes a line's category, so it holds account, product group, month and booked-or-not only;
   // rows that share it are numbered in a fixed order (largest first).
   const keyCount = {};
+  // numbered by things that do not move when a refresh or a rule changes an amount (product, baseline month, cohort, booking id); amount is the last tie-break only
+  const cmp = function (x, y) { return x < y ? -1 : x > y ? 1 : 0; };
   grouped.slice().sort(function (a, b) {
-    return (a.forecastAmount < b.forecastAmount ? 1 : a.forecastAmount > b.forecastAmount ? -1 : 0) ||
-      (a.productName < b.productName ? -1 : a.productName > b.productName ? 1 : 0);
+    return cmp(a.productName, b.productName) || cmp(a.baselineMonth, b.baselineMonth) || cmp(a.cohortNames, b.cohortNames) || cmp(a.cohortCodes, b.cohortCodes) ||
+      cmp(a.bookingType, b.bookingType) || cmp(a.bookingId, b.bookingId) || cmp(b.forecastAmount, a.forecastAmount);
   }).forEach(function (L) {
     const base = [FY27_id15_(L.fullId), L.studentOrgId, L.productGroup, L.forecastMonth, L.status, L.isManual ? "M" + L.manualRow : ""].join("|");
     keyCount[base] = (keyCount[base] || 0) + 1;
