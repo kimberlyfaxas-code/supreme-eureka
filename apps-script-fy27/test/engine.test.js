@@ -1213,5 +1213,11 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const total = (a) => a.reduce((s, l) => s + l.weightedAmount, 0);
   assert.ok(Math.abs(total(r.lines) - total(r.detail)) < 0.02, "combining must not change the weighted total");
   assert.ok(Math.abs(r.lines.reduce((s, l) => s + l.forecastAmount, 0) - r.detail.reduce((s, l) => s + l.forecastAmount, 0)) < 0.02);
+  // iHP is combined the same way, without becoming a flat-fee group
+  const ih = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025IHPGRP01", "Product Group": "IHUMAN", "Product Name": "iHP Traditional & OSCE Cases", "Baseline Amount - Tableau": "5000" }),
+    tab({ "FULL ID": "0014u000025IHPGRP01", "Product Group": "IHUMAN", "Product Name": "iHP Other Cases", "Baseline Amount - Tableau": "2000" })], otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  assert.strictEqual(ih.lines.length, 1);
+  assert.strictEqual(ih.lines[0].baselineAmount, 7000);
+  assert.ok(CFG.FLAT_FEE_GROUPS.indexOf("IHUMAN") < 0);
 })();
 console.log("all engine tests passed");

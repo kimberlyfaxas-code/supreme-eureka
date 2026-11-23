@@ -1193,8 +1193,8 @@ function FY27_buildForecast(input, cfg) {
   const order = [];
   detail.forEach(function (d) {
     d.forecastQuarter = FY27_quarterOf_(d.forecastMonth);
-    // Med / Allied Health are flat fees booked per product group, not per product: every category of the group in a month is one line
-    const flat = !d.isManual && (cfg.FLAT_FEE_GROUPS || []).indexOf(d.productGroup) >= 0;
+    // COMBINE_GROUPS (Med, Allied Health, iHP) are booked per product group, not per product: every category of the group in a month is one line
+    const flat = !d.isManual && (cfg.COMBINE_GROUPS || cfg.FLAT_FEE_GROUPS || []).indexOf(d.productGroup) >= 0;
     const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, flat ? "" : d.expectation, d.isManual ? "M" + d.manualRow : ""].join("|");
     if (!groups[gk]) { groups[gk] = []; order.push(gk); }
     groups[gk].push(d);

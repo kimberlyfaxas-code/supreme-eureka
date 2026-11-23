@@ -135,6 +135,9 @@ const FY27_CFG = {
   // client's largest line in that product group (a $2k line next to a $25k flat fee is 8%). The client's largest line is the flat fee itself.
   // In the 2026 backtest the team zeroed 82% of add-ons defined this way. An add-on is a one-time fee: it is set Not Expected with reason
   // "Non-Recurring" ($0; the value stays in Value If Booked) and does not go through the generic adjustment test.
+  // Product groups shown as ONE line per account x month (all products and categories of the group combined; Forecast Detail keeps the products).
+  // Separate from FLAT_FEE_GROUPS, which drives the flat-fee weights and add-on rules and does not include iHP.
+  COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,
   AT_RISK_BASELINE_ONLY: true,
@@ -1431,8 +1434,8 @@ function FY27_buildForecast(input, cfg) {
   const order = [];
   detail.forEach(function (d) {
     d.forecastQuarter = FY27_quarterOf_(d.forecastMonth);
-    // Med / Allied Health are flat fees booked per product group, not per product: every category of the group in a month is one line
-    const flat = !d.isManual && (cfg.FLAT_FEE_GROUPS || []).indexOf(d.productGroup) >= 0;
+    // COMBINE_GROUPS (Med, Allied Health, iHP) are booked per product group, not per product: every category of the group in a month is one line
+    const flat = !d.isManual && (cfg.COMBINE_GROUPS || cfg.FLAT_FEE_GROUPS || []).indexOf(d.productGroup) >= 0;
     const gk = [FY27_id15_(d.fullId), d.studentOrgId, d.productGroup, d.forecastMonth, d.credit, d.status, flat ? "" : d.expectation, d.isManual ? "M" + d.manualRow : ""].join("|");
     if (!groups[gk]) { groups[gk] = []; order.push(gk); }
     groups[gk].push(d);

@@ -129,9 +129,9 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
-## Med / Allied Health: one line per product group
-`FLAT_FEE_GROUPS` (MED COURSE, ALLIED HEALTH COURSE) are flat fees booked per product group, so all products and categories of the group in a month are **one line**
-per account x month (each group separately; Med and Allied are never merged). The line is named by the category carrying the most dollars, the weight is the blend of its
+## Med / Allied Health / iHP: one line per product group
+`COMBINE_GROUPS` (MED COURSE, ALLIED HEALTH COURSE, IHUMAN; separate from the flat-fee list `FLAT_FEE_GROUPS`, which iHP is not in) are booked per product group, so all products and categories of the group in a month are **one line**
+per account x month (each group separately; Med, Allied and iHP are never merged with each other). The line is named by the category carrying the most dollars, the weight is the blend of its
 parts (the weighted total is unchanged) and a flag lists the combined categories. `Forecast Detail` still has one row per product. Line keys for these groups change once.
 
 ## New / dormant programs start at $0
