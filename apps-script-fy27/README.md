@@ -114,10 +114,12 @@ net weighted (adds new/additional OTC cohorts), and confirmed-only (Captured + E
 net $ and logo retention per year pair (the current year is compared on the same months of both years), plus the 2026 team forecast as recorded.
 
 ## CSM Forecast, overrides and manual add-ons (survive refreshes)
-- **CSM Forecast** is the one tab CSMs work in: filter the CSM column, review the row, and change only the **yellow** cells
-  (`SET: Category / Reason / Stage / Amount / Month`, `Comment`). Calculated columns have a warning-only protection.
-- The change is **saved the moment it is typed** (`onEdit` writes it to the **Overrides** tab; `Saved?` shows the time) and
-  **applied at the next Build / refresh**. Clear all yellow cells on a row to undo it. The Overrides tab is just the store.
+- **CSM Forecast** is the one tab CSMs work in: filter the CSM column, review the row, and **type over the yellow cells** where it is wrong:
+  Forecast Month, Forecast $, Forecast Category, Not Expected Reason, Roster Stage, plus a Comment. Calculated columns (baseline, weighted $,
+  everything to the right) have a warning-only protection. A cell that differs from the calculated value turns orange; putting the old value back clears it.
+- The visible cells are compared with hidden `Calc:` columns (the engine's value before any CSM change). The change is **saved the moment it is typed**
+  (`onEdit` writes it to the **Overrides** tab; `Saved?` shows the time) and **applied at the next Build / refresh** (Weighted $ moves then).
+  The Overrides tab is just the store. `Why (flags)` and the cohort detail sit at the far right so the editable cells stay on one laptop screen.
 - Override keys are `Full ID | Org ID | product group | month | status | #n`, so a data refresh does not orphan a change unless the
   line itself disappears; those show `Not applied` on the CSM tab and `NOT FOUND` on the Overrides tab (also counted on the Review tab).
 - **Manual Add-Ons**: one row per line the data does not know about (new sale, one-off). Needs Full ID or Student Org ID, Product Group,

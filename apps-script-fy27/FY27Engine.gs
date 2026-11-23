@@ -1163,6 +1163,7 @@ function FY27_buildForecast(input, cfg) {
     if (has) overrideStatus[k] = lineKeys[k] ? "Applied" : "Not found";
   });
   grouped.forEach(function (L) {
+    L.calc = { month: L.forecastMonth, amount: L.forecastAmount, category: L.expectation, reason: L.reason, stage: L.stage };   // what the engine says before any CSM change
     const ov = ovByKey[L.key];
     if (!ov) return;
     const exclude = FY27_bool_(ov["Exclude"]);
@@ -1545,24 +1546,31 @@ function FY27_team2026Retention_(rows) {
 /* ---------------- CSM working tab (pure helpers) ---------------- */
 
 /** Columns of the CSM tab: [header, line field, kind]. "SET:" columns and Comment are the CSM's inputs (stored on the Overrides tab). */
+// Display order, left to right. The marked columns are EDITABLE IN PLACE: type over them (the cell turns orange when it differs from the calculated value).
 const FY27_CSM_COLUMNS = [
-  ["CSM", "csm"], ["Account Name", "accountName"], ["Rating", "rating"], ["Product Group", "productGroup"], ["Product Name", "productName"],
-  ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month"],
-  ["Forecast $ (full value)", "forecastAmount", "money"], ["Weighted $", "weightedAmount", "money"],
-  ["Forecast Category", "expectation"], ["Not Expected Reason", "reason"], ["Roster Stage", "stage"]
+  ["CSM", "csm"], ["Account Name", "accountName"], ["Product Group", "productGroup"], ["Product Name", "productName"],
+  ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month", true],
+  ["Forecast $", "forecastAmount", "money", true], ["Weighted $", "weightedAmount", "money"],
+  ["Forecast Category", "expectation", "", true], ["Not Expected Reason", "reason", "", true], ["Roster Stage", "stage", "", true]
 ];
-const FY27_CSM_INPUTS = ["SET: Category", "SET: Reason", "SET: Stage", "SET: Amount", "SET: Month", "Comment"];
-// after the yellow cells: whether the change was saved, the explanation (kept out of the way of the columns people read and edit), and the hidden key
-const FY27_CSM_TAIL = ["Saved?", "Why (flags)", "Line Key"];
-// to the right of the yellow cells: IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
+// editable column -> the field it sets on the Overrides tab -> the hidden column holding the calculated value it is compared with
+const FY27_CSM_EDITS = [
+  ["Forecast Month", "Override Month", "Calc: Month"], ["Forecast $", "Override Amount", "Calc: Amount"], ["Forecast Category", "Forecast Category", "Calc: Category"],
+  ["Not Expected Reason", "Not Expected Reason", "Calc: Reason"], ["Roster Stage", "Roster Stage", "Calc: Stage"]
+];
+// every column a CSM may type in (the five above plus Comment)
+const FY27_CSM_INPUTS = FY27_CSM_EDITS.map(function (x) { return x[0]; }).concat(["Comment"]);
+// right after Comment: whether the change was saved, the explanation, the hidden key and the hidden calculated values
+const FY27_CSM_TAIL = ["Saved?", "Why (flags)", "Line Key"].concat(FY27_CSM_EDITS.map(function (x) { return x[2]; }));
+// to the right: rating, IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
 const FY27_CSM_DETAIL = [
-  ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
+  ["Rating", "rating"], ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
   ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
   ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"]
 ];
 
 function FY27_csmHeaders_() {
-  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(FY27_CSM_INPUTS, FY27_CSM_TAIL, FY27_CSM_DETAIL.map(function (c) { return c[0]; }));
+  return FY27_CSM_COLUMNS.map(function (c) { return c[0]; }).concat(["Comment"], FY27_CSM_TAIL, FY27_CSM_DETAIL.map(function (c) { return c[0]; }));
 }
 
 /** Rows for the CSM tab, sorted CSM > account > month, with each line's saved override (from the Overrides tab) pre-filled. */
@@ -1573,27 +1581,37 @@ function FY27_csmRows_(lines, overrideRows, status) {
     return (a.csm < b.csm ? -1 : a.csm > b.csm ? 1 : 0) || (a.accountName < b.accountName ? -1 : a.accountName > b.accountName ? 1 : 0) ||
       (a.forecastMonth < b.forecastMonth ? -1 : a.forecastMonth > b.forecastMonth ? 1 : 0);
   });
+  const val = function (v) { return v === undefined || v === null ? "" : v; };
   return sorted.map(function (L) {
     const o = ovByKey[L.key] || {};
-    const mo = FY27_monthKey_(o["Override Month"]);
-    const row = FY27_CSM_COLUMNS.map(function (c) {
-      const v = L[c[1]];
-      return v === undefined || v === null ? "" : v;
-    });
+    const c = L.calc || { month: L.forecastMonth, amount: L.forecastAmount, category: L.expectation, reason: L.reason, stage: L.stage };
+    // same clean-up the engine applies to the displayed values, so "unchanged" compares equal
+    const isNE = c.category === "Not Expected";
+    const calcReason = isNE ? c.reason : "";
+    const calcStage = isNE ? (c.stage && c.stage !== "Not started" && c.stage !== "Not needed" ? c.stage : "") : c.stage;
+    const row = FY27_CSM_COLUMNS.map(function (col) { return val(L[col[1]]); });
     const saved = status && status[L.key] ? (status[L.key] === "Applied" ? "Applied" : "Not applied") : "";
-    return row.concat([FY27_str_(o["Forecast Category"]), FY27_str_(o["Not Expected Reason"]), FY27_str_(o["Roster Stage"]), FY27_str_(o["Override Amount"]), mo,
-      FY27_str_(o["Comment"]), saved, (L.flags || []).join(" | "), L.key].concat(FY27_CSM_DETAIL.map(function (c) { const v = L[c[1]]; return v === undefined || v === null ? "" : v; })));
+    return row.concat([FY27_str_(o["Comment"]), saved, (L.flags || []).join(" | "), L.key, c.month, c.amount, c.category, calcReason, calcStage],
+      FY27_CSM_DETAIL.map(function (col) { return val(L[col[1]]); }));
   });
 }
 
 /** One CSM-tab row -> the record kept on the Overrides tab. */
 function FY27_overrideRecFromCsmRow_(headers, row) {
   const g = function (n) { const i = headers.indexOf(n); return i < 0 ? "" : row[i]; };
+  const same = function (a, b) { return FY27_str_(a) === FY27_str_(b); };
   const rec = {
-    "Line Key": FY27_str_(g("Line Key")), "Account": g("Account Name"), "Product": g("Product Group") + " / " + g("Product Name"), "Forecast Month": g("Forecast Month"),
-    "Override Amount": g("SET: Amount"), "Override Month": g("SET: Month"), "Forecast Category": g("SET: Category"), "Not Expected Reason": g("SET: Reason"),
-    "Roster Stage": g("SET: Stage"), "Comment": g("Comment")
+    "Line Key": FY27_str_(g("Line Key")), "Account": g("Account Name"), "Product": g("Product Group") + " / " + g("Product Name"), "Forecast Month": g("Calc: Month"),
+    "Override Amount": "", "Override Month": "", "Forecast Category": "", "Not Expected Reason": "", "Roster Stage": "", "Comment": g("Comment")
   };
+  // an override is only recorded where the cell now differs from the calculated value (typing the old value back clears it)
+  const vm = FY27_monthKey_(g("Forecast Month")), cm = FY27_monthKey_(g("Calc: Month"));
+  if (vm && vm !== cm) rec["Override Month"] = vm;
+  const va = g("Forecast $"), ca = g("Calc: Amount");
+  if (FY27_str_(va) !== "" && Math.abs(FY27_num_(va) - FY27_num_(ca)) > 0.005) rec["Override Amount"] = FY27_num_(va);
+  if (FY27_str_(g("Forecast Category")) !== "" && !same(g("Forecast Category"), g("Calc: Category"))) rec["Forecast Category"] = g("Forecast Category");
+  if (FY27_str_(g("Not Expected Reason")) !== "" && !same(g("Not Expected Reason"), g("Calc: Reason"))) rec["Not Expected Reason"] = g("Not Expected Reason");
+  if (FY27_str_(g("Roster Stage")) !== "" && !same(g("Roster Stage"), g("Calc: Stage"))) rec["Roster Stage"] = g("Roster Stage");
   rec.empty = ["Override Amount", "Override Month", "Forecast Category", "Not Expected Reason", "Roster Stage", "Comment"].every(function (f) { return FY27_str_(rec[f]) === ""; });
   return rec;
 }
@@ -1629,9 +1647,9 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["WHAT YOU DO"],
     ["1. Open the tab '" + cfg.SHEETS.CSM + "'. Use the filter on the CSM column to show only your accounts."],
-    ["2. Each row is one account, product group and month. The columns to the right of the yellow cells (Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline Month' and 'Baseline $' are what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast Month' and 'Forecast $' are what we expect; 'Why' explains any flag."],
-    ["3. If a row is wrong, fill in the YELLOW cells only (SET: Category / Reason / Stage / Amount / Month, and a Comment). Everything else is calculated."],
-    ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh. You never have to touch any other tab."],
+    ["2. Each row is one account, product group and month. The columns to the far right (Why, Booking Type, Cohort Names, Est. Students, Price, Prior-Year Cohorts, Weight Basis) show what the row is made of: a renewal, a rebooking, or roster chasing (an extra predicted cohort). One row per cohort is on the '" + cfg.SHEETS.DETAIL + "' tab. 'Baseline Month' and 'Baseline $' are what the client booked in " + (cfg.FORECAST_YEAR - 1) + "; 'Forecast Month' and 'Forecast $' are what we expect (both editable); 'Why' explains any flag."],
+    ["3. If a row is wrong, TYPE OVER the YELLOW cells: Forecast Month, Forecast $, Forecast Category, Not Expected Reason, Roster Stage, and add a Comment. Everything else is calculated. A cell you changed turns ORANGE; put the old value back to undo it."],
+    ["4. Your change is saved the moment you type it ('Saved?' shows the time) and is applied at the next refresh (until then the cell shows what you typed, in orange, and Weighted $ has not moved yet). You never have to touch any other tab."],
     ["5. Something the data does not know about (a new sale, a one-off)? Add a line on the tab '" + cfg.SHEETS.MANUAL + "'. The Status column tells you if it was accepted."],
     [""],
     ["THE FIVE CATEGORIES (Forecast Category)"],
@@ -1649,7 +1667,7 @@ function FY27_readmeLines_(cfg) {
     ["Not started, In progress, Received - held, Submitted, Not needed (rebookings and SSO need no new roster)."],
     [""],
     ["TIMING vs BASELINE"],
-    ["Early / On time / Late is worked out for you from the forecast month. To move a month, use SET: Month."],
+    ["Early / On time / Late is worked out for you from the forecast month. To move a month, type the new month over Forecast Month."],
     [""],
     ["SAME ACCOUNT, TWO IDs (e.g. a separate Billing ID created just for one booking)"],
     ["Add a row on the '" + cfg.SHEETS.MERGES + "' tab: From ID = the duplicate, Into ID = the main account (either can be a Full ID or Student Org ID). After the next refresh both count as one account. The Status column confirms."],

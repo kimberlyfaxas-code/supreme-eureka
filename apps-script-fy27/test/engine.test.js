@@ -1064,4 +1064,29 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.ok(row[hdr.indexOf("Cohort Names")].indexOf("RN Feb Detail") >= 0);
   assert.strictEqual(row[hdr.indexOf("Booking Type")], r.lines[0].bookingType);
 })();
+// 60. In-place editing: an override is only recorded where the visible cell differs from the calculated value; reverting clears it
+(function () {
+  const r = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025INPLACE" })], otc: [otc({ "Full ID": "0014u000025INPLACE" })], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const hdr = E.FY27_csmHeaders_();
+  const row = E.FY27_csmRows_(r.lines, [], {})[0];
+  const rec0 = E.FY27_overrideRecFromCsmRow_(hdr, row);
+  assert.strictEqual(rec0.empty, true, "untouched row has no override");
+  const set = (name, v) => { const x = row.slice(); x[hdr.indexOf(name)] = v; return E.FY27_overrideRecFromCsmRow_(hdr, x); };
+  assert.strictEqual(set("Forecast Category", "Not Expected")["Forecast Category"], "Not Expected");
+  assert.strictEqual(set("Forecast $", 1234)["Override Amount"], 1234);
+  assert.strictEqual(set("Forecast Month", new Date(2027, 5, 1))["Override Month"], "2027-06");
+  assert.strictEqual(set("Comment", "call Tue").empty, false);
+  assert.strictEqual(set("Forecast $", row[hdr.indexOf("Calc: Amount")]).empty, true, "typing the calculated value back clears it");
+  // after the override is applied the visible cell shows the new value but the hidden calc cell keeps the engine value
+  const ov = [{ "Line Key": r.lines[0].key, "Forecast Category": "At Risk", "Override Amount": "999" }];
+  const r2 = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025INPLACE" })], otc: [otc({ "Full ID": "0014u000025INPLACE" })], salesforce: [], overrides: ov, adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const row2 = E.FY27_csmRows_(r2.lines, ov, {})[0];
+  assert.strictEqual(row2[hdr.indexOf("Forecast Category")], "At Risk");
+  assert.strictEqual(row2[hdr.indexOf("Forecast $")], 999);
+  assert.strictEqual(row2[hdr.indexOf("Calc: Category")], r.lines[0].expectation);
+  assert.strictEqual(row2[hdr.indexOf("Calc: Amount")], r.lines[0].forecastAmount);
+  const rec2 = E.FY27_overrideRecFromCsmRow_(hdr, row2);
+  assert.strictEqual(rec2["Forecast Category"], "At Risk");
+  assert.strictEqual(rec2["Override Amount"], 999);
+})();
 console.log("all engine tests passed");

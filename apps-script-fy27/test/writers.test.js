@@ -84,7 +84,7 @@ api.FY27_writeCsmSheet_(ss, res.lines, [], res.stats.overrideStatus);
 const csm = sheets[CFG.SHEETS.CSM];
 assert.ok(csm.filterCreated, "CSM tab has a filter");
 assert.strictEqual(csm.frozenCols, 2);
-assert.ok(csm.cfRules && csm.cfRules.length === 4, "category colour rules");
+assert.ok(csm.cfRules && csm.cfRules.length === 9, "5 changed-cell rules + 4 category colour rules");
 assert.ok(csm.protections.length >= 1, "calculated columns protected (warning only)");
 assert.ok(sheets[CFG.SHEETS.README].writes.length >= 1, "read me written");
 api.FY27_writeOverrideStatus_(sheets[CFG.SHEETS.OVERRIDES], {});
@@ -96,14 +96,16 @@ api.FY27_writeCsmSheet_(ss, [], [], {});
 // onEdit: edit a yellow cell on the CSM tab -> row lands on the Overrides tab
 const hdr = api.FY27_csmHeaders_();
 const rowVals = hdr.map(() => "");
-rowVals[hdr.indexOf("Line Key")] = "KEY|1"; rowVals[hdr.indexOf("Account Name")] = "A"; rowVals[hdr.indexOf("SET: Category")] = "Not Expected";
-rowVals[hdr.indexOf("SET: Reason")] = "Client lost";
+rowVals[hdr.indexOf("Line Key")] = "KEY|1"; rowVals[hdr.indexOf("Account Name")] = "A"; rowVals[hdr.indexOf("Forecast Category")] = "Not Expected"; rowVals[hdr.indexOf("Calc: Category")] = "Expected";
+rowVals[hdr.indexOf("Not Expected Reason")] = "Lost"; rowVals[hdr.indexOf("Calc: Reason")] = "";
+rowVals[hdr.indexOf("Forecast Month")] = new Date(2027, 2, 1); rowVals[hdr.indexOf("Calc: Month")] = new Date(2027, 2, 1);
+rowVals[hdr.indexOf("Forecast $")] = 500; rowVals[hdr.indexOf("Calc: Amount")] = 500;
 const csm2 = sheets[CFG.SHEETS.CSM];
 csm2.getLastColumn = () => hdr.length;
 csm2.readValues = (r, c, nr, nc) => (r === 1 ? [hdr] : [rowVals]);
 const ovSh = sheets[CFG.SHEETS.OVERRIDES];
 ovSh.getLastRow = () => 1; ovSh.getLastColumn = () => 13;
-const catCol = hdr.indexOf("SET: Category") + 1;
+const catCol = hdr.indexOf("Forecast Category") + 1;
 const ovWrites = [];
 const origGetRange = ovSh.getRange;
 ovSh.getRange = (r, c, nr, nc) => { const g = origGetRange(r, c, nr, nc); const sv = g.setValues; g.setValues = function (v) { if (r === 2) ovWrites.push(v); return sv.call(this, v); }; return g; };
@@ -112,10 +114,13 @@ api.FY27_onEdit_({ range: editRange });
 assert.strictEqual(ovWrites.length, 1, "override row written");
 assert.strictEqual(ovWrites[0][0][0], "KEY|1");
 assert.strictEqual(ovWrites[0][0][6], "Not Expected");
+assert.strictEqual(ovWrites[0][0][7], "Lost");
+assert.strictEqual(ovWrites[0][0][4], "", "unchanged amount is not an override");
+assert.strictEqual(ovWrites[0][0][5], "", "unchanged month is not an override");
 assert.strictEqual(ovWrites[0][0][10], "csm@example.com");
 // editing a calculated column does nothing
 ovWrites.length = 0;
-api.FY27_onEdit_({ range: csm2.getRange(2, 2, 1, 1) });
+api.FY27_onEdit_({ range: csm2.getRange(2, 2, 1, 1) });   // Account Name column
 assert.strictEqual(ovWrites.length, 0, "calculated columns do not write overrides");
 // editing another sheet does nothing
 api.FY27_onEdit_({ range: sheets[CFG.SHEETS.FORECAST].getRange(2, 2, 1, 1) });
