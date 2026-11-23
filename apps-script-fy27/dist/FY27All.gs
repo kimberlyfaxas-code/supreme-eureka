@@ -2199,6 +2199,7 @@ function FY27_mustFind_(ss, exact, prefix, label) {
 function FY27_resetFormats_(sh) {
   const all = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
   all.clearFormat();
+  try { all.setNumberFormat("General"); } catch (e) { /* clearFormat above already resets it */ }
   all.clearDataValidations();
   all.clearNote();
 }
@@ -2261,12 +2262,15 @@ function FY27_writeReview_(ss, result, retention) {
   const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
   add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
   const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
-  add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
-  add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
+  r = add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
+  fmt.push([r, 4, "$#,##0"]);
+  r = add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
+  fmt.push([r, 4, "$#,##0"], [r, 6, "$#,##0"], [r, 8, "0%"]);
   const ih = s.ihpIgnored || {};
-  add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  r = add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
+  fmt.push([r, 4, "#,##0"], [r, 6, "$#,##0"]);
   if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
-  (ih.top || []).forEach(function (t, i) { add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); });
+  (ih.top || []).forEach(function (t, i) { const tr = add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); fmt.push([tr, 4, "$#,##0"]); });
   add(["Manual add-on lines added", s.manualAdded || 0, "Manual add-on rows NOT added (see Status column)", manBad]);
   r = add(["Not in Tableau (excluded)", s.excludedNotInTableau.accounts + " accounts", "OTC cohorts left out", s.excludedNotInTableau.cohorts, "Value left out", s.excludedNotInTableau.value]);
   fmt.push([r, 6, "$#,##0"]);
@@ -2334,6 +2338,7 @@ function FY27_writeReview_(ss, result, retention) {
   const w = rows.reduce(function (m, r) { return Math.max(m, r.length); }, width);   // never let a row outgrow the range
   rows.forEach(function (r) { while (r.length < w) r.push(""); });
   sh.getRange(1, 1, rows.length, w).setValues(rows);
+  try { sh.getRange(1, 1, rows.length, w).setNumberFormat("General"); } catch (e) { /* older Sheets: formats were already cleared above */ }   // nothing inherits a format from an earlier layout
   fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
   sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
   compHdrs.concat(retHdrs).forEach(function (h) { sh.getRange(h, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
