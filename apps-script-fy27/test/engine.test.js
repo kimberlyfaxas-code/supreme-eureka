@@ -1220,4 +1220,27 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(ih.lines[0].baselineAmount, 7000);
   assert.ok(CFG.FLAT_FEE_GROUPS.indexOf("IHUMAN") < 0);
 })();
+// 68. Prep Select is always roster chasing (never an automatic rebooking, even with a cohort code); other products keep the cohort-code rule
+(function () {
+  const T = [tab({ "FULL ID": "0014u000025PREP0001", "Product Name": "NCLEX PN Prep Select", "Baseline Amount - Tableau": "4950", "Baseline Booking Month - Tableau": "9/1/2026", "Forecast Month - Tableau": "9/1/2027" }),
+             tab({ "FULL ID": "0014u000025PREP0001", "Product Name": "NCLEX RN - Curriculum Plus", "Baseline Amount - Tableau": "3000", "Baseline Booking Month - Tableau": "2/1/2026", "Forecast Month - Tableau": "2/1/2027" })];
+  const O = [otc({ "Full ID": "0014u000025PREP0001", "Product Name": "NCLEX PN Prep Select", "cohort_name": "PN Fall 27", "Cohort Code (if present, then this is a rebooking)": "PS2701", "order_estimated_start_date": "2027-08-01", "Estimated or Actual Order Total": "5500" }),
+             otc({ "Full ID": "0014u000025PREP0001", "Product Name": "NCLEX RN - Curriculum Plus", "cohort_name": "RN Feb", "Cohort Code (if present, then this is a rebooking)": "RN2701", "order_estimated_start_date": "2027-02-01", "Estimated or Actual Order Total": "3000" })];
+  const r = E.FY27_buildForecast({ tableau: T, otc: O, salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const ps = r.detail.find((l) => /Prep Select/.test(l.productName) && l.forecastMonth === "2027-08");
+  assert.strictEqual(ps.bookingType, "Roster Chasing");
+  assert.strictEqual(ps.stage, "Not started");
+  const cp = r.detail.find((l) => /Curriculum Plus/.test(l.productName));
+  assert.strictEqual(cp.bookingType, "Rebooking");
+  assert.strictEqual(cp.stage, "Not needed");
+  // baseline repeated by assumption (no OTC cohort) is roster chasing for Prep Select too
+  const r2 = E.FY27_buildForecast({ tableau: T, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  assert.strictEqual(r2.detail.find((l) => /Prep Select/.test(l.productName)).bookingType, "Roster Chasing");
+  assert.strictEqual(r2.detail.find((l) => /Curriculum Plus/.test(l.productName)).bookingType, "Rebooking (assumed)");
+  // a coded Prep Select cohort is still an existing class: never treated as a dormant program
+  CFG.DORMANT_PROGRAM_ACTION = "zero";
+  const r3 = E.FY27_buildForecast({ tableau: [T[1]], otc: [O[0]], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  CFG.DORMANT_PROGRAM_ACTION = "weight";
+  assert.notStrictEqual(r3.detail.find((l) => /Prep Select/.test(l.productName)).reason, "No Revenue This Term");
+})();
 console.log("all engine tests passed");

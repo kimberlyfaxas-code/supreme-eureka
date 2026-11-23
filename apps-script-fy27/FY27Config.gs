@@ -59,6 +59,9 @@ const FY27_CFG = {
   //  "weight" = flag it, set it At Risk and weight it by DORMANT_PROGRAM_WEIGHT (a CSM decides)
   //  "zero"   = Not Expected, $0 (value kept in Value If Booked)
   // Cohorts that already have a code are existing classes and are never treated as dormant.
+  // Products whose roster has to be chased every term (sold per learner per academic term, e.g. NCLEX Prep Select). Matched as a fragment of the product name,
+  // ignoring case. These are always booking type "Roster Chasing" (stage starts at "Not started"), never an automatic "Rebooking", even when the cohort has a code.
+  ROSTER_CHASING_PRODUCTS: ["prep select"],
   DORMANT_PROGRAM_ACTION: "zero",
   DORMANT_PROGRAM_WEIGHT: 0.25,   // placeholder, not yet calibrated: the backtest compares baseline lines, not OTC-only cohorts
 

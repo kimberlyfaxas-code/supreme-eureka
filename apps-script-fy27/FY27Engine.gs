@@ -167,6 +167,12 @@ function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
 
+/** True when `text` contains any of the (case-insensitive) fragments. */
+function FY27_matchesAny_(text, fragments) {
+  const t = FY27_str_(text).toLowerCase();
+  return (fragments || []).some(function (f) { return f && t.indexOf(String(f).toLowerCase()) >= 0; });
+}
+
 /** Account-name key used to match the iHP list to the data: lower case, "&" = "and", punctuation and extra spaces ignored. */
 function FY27_nameKey_(s) {
   return FY27_str_(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -296,7 +302,10 @@ function FY27_normOtc_(r, cfg) {
     cohortName: FY27_str_(FY27_pick_(r, ["cohort_name"])),
     cohortCode: code,
     billingPeriod: period,
-    isRebooking: !!code || (cfg.REBOOKING_BASIS === "period" && period >= 2),
+    hasCode: !!code,
+    // products sold per term whose roster must be chased every term (e.g. Prep Select): never treated as an automatic rebooking, even with a cohort code
+    alwaysChasing: FY27_matchesAny_(pname, cfg.ROSTER_CHASING_PRODUCTS),
+    isRebooking: (!!code || (cfg.REBOOKING_BASIS === "period" && period >= 2)) && !FY27_matchesAny_(pname, cfg.ROSTER_CHASING_PRODUCTS),
     productCode: FY27_str_(FY27_pick_(r, ["product_code"])),
     productType: FY27_str_(FY27_pick_(r, ["product_type"])),
     modality: FY27_str_(FY27_pick_(r, ["product_modality"])),
@@ -827,7 +836,7 @@ function FY27_buildForecast(input, cfg) {
     L.contractEnd = cEnd;
     L.bookingId = b.bookingId;
     L.priorCohorts = prior;
-    L.bookingType = "Rebooking (assumed)";
+    L.bookingType = FY27_matchesAny_(b.productName, cfg.ROSTER_CHASING_PRODUCTS) ? "Roster Chasing" : "Rebooking (assumed)";
     L.status = "Forecast";
     L.stage = "Not started";
     L.expectation = "Expected";
@@ -886,7 +895,7 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
     writeback[b.row] = {
       contractId: "", contractStart: "", contractEnd: cEnd, forecastMonthOtc: "", price: "",
-      estStudents: "", estAmount: "", bookingType: "Rebooking (assumed)", productType: "", cohortNames: ""
+      estStudents: "", estAmount: "", bookingType: FY27_matchesAny_(b.productName, cfg.ROSTER_CHASING_PRODUCTS) ? "Roster Chasing" : "Rebooking (assumed)", productType: "", cohortNames: ""
     };
   });
 
@@ -957,7 +966,7 @@ function FY27_buildForecast(input, cfg) {
     // Existing account, but this program did not book last year -> do not add it for next year
     // Only FIRST-TIME cohorts (no cohort code) can be a dormant program: a cohort code exists only once the class has booked, so a coded
     // cohort is an existing class and the program is alive (e.g. Capital Idea PN, booked last week, has codes).
-    if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !o.isRebooking && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
+    if (cfg.EXCLUDE_UNBOOKED_PROGRAMS && !o.booked && !o.hasCode && !o.isRebooking && !notInTableau && !programActive(o.fullId, o.group, o.family)) {
       const last = history.lastByFamily[o.fullId + "|" + o.group + "|" + o.family];
       const noteBase = "No " + (year - 1) + " booking for this program (" + o.family + ")" + (last ? ", last booked " + last : "");
       if ((cfg.DORMANT_PROGRAM_ACTION || "weight") === "zero") {
