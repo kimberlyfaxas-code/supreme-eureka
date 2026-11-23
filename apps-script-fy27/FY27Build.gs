@@ -246,7 +246,7 @@ function FY27_writeReview_(ss, result, retention) {
   const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
   add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
   const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
-  r = add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
+  r = add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines (" + (eb.onlyLines || 0) + " with no baseline: not shown as lines)" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
   fmt.push([r, 4, "$#,##0"]);
   r = add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   fmt.push([r, 4, "$#,##0"], [r, 6, "$#,##0"], [r, 8, "0%"]);

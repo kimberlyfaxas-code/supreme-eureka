@@ -1181,4 +1181,20 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(r3.lines.find((x) => x.forecastMonth === "2027-02").earlyAmount, 1000);
   CFG.EARLY_BOOKED_TREATMENT = "keep";
 })();
+// 66. Booked-early OTC cohorts with no baseline are not lines at all (kept in the totals and the monthly coverage); ones with a baseline stay at $0
+(function () {
+  CFG.EARLY_BOOKED_TREATMENT = "prior_year";
+  const r = E.FY27_buildForecast({ tableau: [tab({ "FULL ID": "0014u000025EONLY001", "Forecast Month - Tableau": "2/1/2027", "Baseline Amount - Tableau": "1000" })],
+    otc: [otc({ "Full ID": "0014u000025EONLY001", "order_status": "Complete", "order_actual_start_date": "2027-02-01" }),
+          otc({ "Full ID": "0014u000025EONLY001", "cohort_name": "Extra Jun", "order_status": "Complete", "order_actual_start_date": "2027-06-01", "order_estimated_start_date": "2027-06-01", "Estimated or Actual Order Total": "700", "Product Name": "Other Program" })],
+    salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  assert.ok(r.lines.some((x) => x.forecastMonth === "2027-02" && x.baselineAmount === 1000 && x.expectation === "Not Expected"), "baseline slot stays as a $0 line");
+  assert.ok(!r.lines.some((x) => x.forecastMonth === "2027-06"), "no-baseline early cohort is not a line");
+  assert.strictEqual(r.stats.earlyBooked.onlyLines, 1);
+  assert.strictEqual(r.stats.earlyBooked.onlyValue, 700);
+  assert.strictEqual(r.stats.earlyBooked.value, 1700);
+  assert.strictEqual(r.coverage.find((c) => c.month === "2027-06").early, 700);
+  assert.strictEqual(r.coverage.reduce((s, c) => s + c.early, 0), r.stats.earlyBooked.value);
+  CFG.EARLY_BOOKED_TREATMENT = "keep";
+})();
 console.log("all engine tests passed");

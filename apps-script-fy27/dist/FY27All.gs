@@ -1263,19 +1263,27 @@ function FY27_buildForecast(input, cfg) {
    * prior-year booking (it shows as Captured in that year's forecast). It stays on its baseline line - the baseline slot is still in the
    * forecast year - but carries $0 here so it is not counted twice. Only while "now" is before the forecast year: once the year has
    * started, booked orders are real bookings of the year and this rule switches itself off. */
-  const earlyBooked = { lines: 0, value: 0, active: false };
+  const earlyBooked = { lines: 0, value: 0, active: false, onlyLines: 0, onlyValue: 0, dropped: [] };
   if (cfg.EARLY_BOOKED_TREATMENT === "prior_year" && now.getFullYear() < year) {
     earlyBooked.active = true;
+    const keep = [];
     lines.forEach(function (L) {
-      if (L.isManual || L.expectation !== "Captured" || !(L.forecastAmount > 0)) return;
-      if (FY27_yearOf_(L.forecastMonth) !== year) return;
+      if (L.isManual || L.expectation !== "Captured" || !(L.forecastAmount > 0) || FY27_yearOf_(L.forecastMonth) !== year) { keep.push(L); return; }
       earlyBooked.lines++; earlyBooked.value += L.forecastAmount;
+      if (!(L.baselineAmount > 0)) {
+        // an OTC cohort with no baseline slot to hold: nothing is forecast, so it is not a line at all. Kept in the totals and the monthly coverage only.
+        earlyBooked.onlyLines++; earlyBooked.onlyValue += L.forecastAmount;
+        earlyBooked.dropped.push({ month: L.forecastMonth, amount: L.forecastAmount, account: L.accountName, productGroup: L.productGroup, productName: L.productName, cohort: L.cohortNames });
+        return;
+      }
       L.flags.push("Booked early: $" + Math.round(L.forecastAmount).toLocaleString() + " was signed in " + (year - 1) + " and counts in " + (year - 1) + " bookings, so $0 here (baseline stays)");
       L.earlyAmount = L.forecastAmount;
       L.forecastAmount = 0; L.valueIfBooked = L.valueIfBooked || L.earlyAmount;
       L.expectation = "Not Expected"; L.reason = cfg.EARLY_BOOKED_REASON; L.stage = ""; L.weightOverride = undefined;
+      keep.push(L);
     });
-    earlyBooked.value = FY27_round2_(earlyBooked.value);
+    lines = keep;
+    earlyBooked.value = FY27_round2_(earlyBooked.value); earlyBooked.onlyValue = FY27_round2_(earlyBooked.onlyValue);
   }
 
   /* ---- 2b. Manual add-ons (the "Manual Add-Ons" tab): lines the data does not know about ---- */
@@ -1500,8 +1508,8 @@ function FY27_buildForecast(input, cfg) {
   });
   lines = grouped;
   if (earlyBooked.active) {      // overrides may have removed some early credit
-    earlyBooked.lines = lines.filter(function (L) { return L.earlyAmount > 0; }).length;
-    earlyBooked.value = FY27_round2_(lines.reduce(function (t, L) { return t + (L.earlyAmount || 0); }, 0));
+    earlyBooked.lines = lines.filter(function (L) { return L.earlyAmount > 0; }).length + earlyBooked.onlyLines;
+    earlyBooked.value = FY27_round2_(lines.reduce(function (t, L) { return t + (L.earlyAmount || 0); }, 0) + earlyBooked.onlyValue);
   }
   lines.forEach(function (L) {
     if (L.expectation === "Not Expected") L.stage = L.stage && L.stage !== "Not started" && L.stage !== "Not needed" ? L.stage : "";
@@ -1534,6 +1542,7 @@ function FY27_buildForecast(input, cfg) {
   // monthly coverage: how complete is each month?
   const cov = {};
   for (let m = 1; m <= 12; m++) cov[year + "-" + FY27_pad2_(m)] = { month: year + "-" + FY27_pad2_(m), booked: 0, forecast: 0, bookedLines: 0, forecastLines: 0, baselineIncomplete: false, weighted: 0, early: 0, earlyLines: 0 };
+  earlyBooked.dropped.forEach(function (d) { const c = cov[d.month]; if (c) { c.early += d.amount; c.earlyLines++; } });
   lines.forEach(function (L) {
     const c = cov[L.forecastMonth];
     if (!c) return;
@@ -2274,7 +2283,7 @@ function FY27_writeReview_(ss, result, retention) {
   const manBad = manRes.filter(function (m) { return String(m.status).indexOf("NOT ADDED") === 0; }).length;
   add(["CSM changes applied", s.overridesApplied, "CSM changes NOT matched to a line (see Overrides tab)", ovNotFound, "Adjustments derived (Tableau vs OTC)", s.derivedAdjustments]);
   const eb = s.earlyBooked || { lines: 0, value: 0 }, cy = s.carry || {};
-  r = add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
+  r = add(["Booked early in " + (FY27_CFG.FORECAST_YEAR - 1) + " (counted there, $0 here)", eb.active ? eb.lines + " lines (" + (eb.onlyLines || 0) + " with no baseline: not shown as lines)" : "rule off", "Value $", eb.value, "Pushed in from " + (FY27_CFG.FORECAST_YEAR - 1) + " forecast", (cy.replaced || 0) + (cy.added || 0) + " lines"]);
   fmt.push([r, 4, "$#,##0"]);
   r = add(["Open " + (FY27_CFG.FORECAST_YEAR - 1) + " Nov/Dec lines (not booked)", (cy.openLines || 0) + " lines", "Value $", cy.openValue || 0, "Pushed value $", cy.pushedValue || 0, "Slip rate", FY27_CFG.CARRY_OPEN_SLIP_RATE]);
   fmt.push([r, 4, "$#,##0"], [r, 6, "$#,##0"], [r, 8, "0%"]);
