@@ -16,6 +16,7 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    PRODUCT_NAMES: "Product Names",
     BASELINE_REVIEW: "Baseline Review",
     BASELINE_TAGS: "Baseline Tags",
     RETENTION_GROUP: "Retention by Group",
@@ -163,6 +164,31 @@ const FY27_CFG = {
   // Flat-fee groups (Med / Allied) keep their own weights unless PENDING_RATING_INCLUDES_FLAT_FEE.
   PENDING_WEIGHT_BY_RATING: { green: 0.90, yellow: 0.80, red: 0.55, gray: 0.50, grey: 0.50, black: 0.25, "default": 0.80 },
   PENDING_RATING_INCLUDES_FLAT_FEE: false,
+  // Current product catalogue (names and codes as of the latest product list). Product names and codes change through a term and differ between Tableau and OTC, so every
+  // product name is mapped to ONE current name for display and grouping (e.g. "Curriculum Plus" and "NCLEX RN - Curriculum Plus" are the same product). Order matters: first match wins.
+  // A line matches by product code (OTC) or by alias (a fragment of the name, whole words, ignoring case and punctuation) and must not contain a "not" word. Names that match nothing
+  // stay as they are and are listed on the Review tab; add them on the "Product Names" tab (alias -> current name) without touching code. Matching of Tableau lines to OTC cohorts still
+  // uses the original names (RN / PN family); only the displayed / grouped product changes.
+  PRODUCT_CATALOG: [
+    { name: "NCLEX PN - PN Prep Select", codes: ["NCLXPNIT"], aliases: ["pn prep select", "nclex pn prep select"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX PN - PN Curriculum Plus", codes: ["NCPNITD"], aliases: ["pn curriculum plus", "nclex pn curriculum plus"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Curriculum Plus International", codes: ["NCLXINST9"], aliases: ["curriculum plus international"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Curriculum Plus", codes: ["OLNCLSYR"], aliases: ["curriculum plus"], not: ["pn", "international"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Prep Select", codes: ["OLNCLINST"], aliases: ["rn prep select", "prep select"], not: ["pn"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Total Prep", codes: ["RNDXCATIN"], aliases: ["total prep"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Testing Select", codes: ["NCLXITP1"], aliases: ["testing select"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Question Select", codes: ["RNQSINST"], aliases: ["question select"], groups: ["NURSING COURSE"] },
+    { name: "Single Test PN", codes: [], aliases: ["single test pn"], groups: ["NURSING COURSE"] },
+    { name: "Single Test RN", codes: ["RNSINGTES"], aliases: ["single test rn", "single test"], not: ["pn"], groups: ["NURSING COURSE"] },
+    { name: "Family Nurse Practitioner (FNP)", codes: ["FNPBINST"], aliases: ["family nurse practitioner", "fnp"], groups: ["NURSING COURSE"] },
+    { name: "Admissions", codes: ["RNATI", "PNATI"], aliases: ["admissions"], groups: ["NURSING COURSE"] },
+    { name: "Continuing Professional Development Library", codes: ["CELIBRARY"], aliases: ["continuing professional development", "cpd library"], groups: ["NURSING COURSE"] },
+    { name: "Adult-Gerontology Primary Care Nurse Practitioner", codes: [], aliases: ["adult gerontology primary care"], groups: ["NURSING COURSE"] },
+    { name: "GN iHP", codes: [], aliases: ["gn ihp", "ihp grad", "ihp graduate"], groups: ["IHUMAN"] },
+    { name: "UNE iHP", codes: [], aliases: ["une ihp", "ihp une"], groups: ["IHUMAN"] }
+  ],
+  // Product groups whose names are checked against the catalogue (names that match nothing are listed on the Review tab).
+  PRODUCT_CATALOG_GROUPS: ["NURSING COURSE", "IHUMAN"],
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,
@@ -432,6 +458,35 @@ function FY27_otcFamily_(group, productName, program, cohortName) {
 }
 function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
+}
+
+/** Lower case, punctuation removed, single spaces: the form product names are compared in. */
+function FY27_prodKey_(s) { return FY27_str_(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim(); }
+
+/**
+ * The ONE current name for a product: an alias from the "Product Names" tab (exact), else the catalogue by product code, else by alias words.
+ * Returns the current name, or "" when nothing matches (the caller keeps the original name).
+ */
+function FY27_canonProduct_(rawName, code, group, cfg, userAliases) {
+  const nk = FY27_prodKey_(rawName);
+  if (!nk) return "";
+  if (userAliases && userAliases[nk]) return userAliases[nk];
+  const g = FY27_str_(group).toUpperCase();
+  const cu = FY27_str_(code).toUpperCase();
+  const padded = " " + nk + " ";
+  const cat = cfg.PRODUCT_CATALOG || [];
+  for (let i = 0; i < cat.length; i++) {
+    const p = cat[i];
+    if (p.groups && p.groups.indexOf(g) < 0) continue;
+    if (cu && (p.codes || []).indexOf(cu) >= 0) return p.name;
+  }
+  for (let i = 0; i < cat.length; i++) {
+    const p = cat[i];
+    if (p.groups && p.groups.indexOf(g) < 0) continue;
+    if ((p.not || []).some(function (w) { return padded.indexOf(" " + FY27_prodKey_(w) + " ") >= 0; })) continue;
+    if ((p.aliases || []).some(function (a) { return padded.indexOf(" " + FY27_prodKey_(a) + " ") >= 0; })) return p.name;
+  }
+  return "";
 }
 
 /** True when `text` contains any of the (case-insensitive) fragments. */
@@ -707,6 +762,22 @@ function FY27_buildForecast(input, cfg) {
     .filter(function (b) { return b.fullId || b.baseAmt || b.group; });
   // Baseline tags (the "Baseline Review" tab): a CSM / analyst marks a baseline row as a data error (removed from the baseline), a one-time fee (stays in the
   // baseline, never forecast) or verified (a note). Rows are identified by account, product, month and amount (+ a count if identical rows repeat).
+  // one current name per product (display / grouping); matching to OTC cohorts keeps using the original names (family)
+  const userAliases = {};
+  (input.productAliases || []).forEach(function (r) {
+    const a = FY27_prodKey_(FY27_pick_(r, ["Alias (as it appears in Tableau / OTC)", "Alias"])), n = FY27_str_(FY27_pick_(r, ["Product (current name)", "Product"]));
+    if (a && n) userAliases[a] = n;
+  });
+  const unmappedProducts = {};
+  const mapName = function (raw, code, group) {
+    const name = FY27_canonProduct_(raw, code, group, cfg, userAliases);
+    if (!name && raw && (cfg.PRODUCT_CATALOG_GROUPS || []).indexOf(FY27_str_(group).toUpperCase()) >= 0) {
+      const k = group + "|" + raw; unmappedProducts[k] = unmappedProducts[k] || { group: group, name: raw, rows: 0 }; unmappedProducts[k].rows++;
+    }
+    return name || raw;
+  };
+  base.forEach(function (b) { b.rawProductName = b.productName; b.productName = mapName(b.productName, FY27_str_(FY27_pick_(b.raw, ["Product Code", "product_code"])), b.group); });
+  otcAll.forEach(function (o) { o.rawProductName = o.productName; o.productName = mapName(o.productName, o.productCode, o.group); });
   const baseAll = base.slice();
   const tagCfg = {};
   (cfg.BASELINE_TAGS || []).forEach(function (t) { tagCfg[t.name] = t.action; });
@@ -714,7 +785,7 @@ function FY27_buildForecast(input, cfg) {
   (input.baselineTags || []).forEach(function (r) { const k = FY27_str_(r["Baseline Key"]); if (k && (FY27_str_(r["Tag"]) || FY27_str_(r["Comment"]))) tagByKey[k] = r; });
   const occ = {};
   base.forEach(function (b) {
-    const k0 = [b.billingId, b.fullId, b.group, b.productName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
+    const k0 = [b.billingId, b.fullId, b.group, b.rawProductName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
     occ[k0] = (occ[k0] || 0) + 1; b.key = k0 + "|" + occ[k0]; b.k0 = k0;
     const t = tagByKey[b.key];
     b.tag = t ? FY27_str_(t["Tag"]) : ""; b.tagComment = t ? FY27_str_(t["Comment"]) : ""; b.tagAction = b.tag ? (tagCfg[b.tag] || "") : "";
@@ -1742,6 +1813,7 @@ function FY27_buildForecast(input, cfg) {
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
       ihpIgnored: ihpIgnored,
+      unmappedProducts: Object.keys(unmappedProducts).map(function (k) { return unmappedProducts[k]; }).sort(function (a, b) { return b.rows - a.rows; }),
       baselineRemoved: baselineRemoved,
       baselineTagStatus: baselineTagStatus,
       ihpSplit: ihpSplit,
@@ -2265,7 +2337,7 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionByGroup_: FY27_retentionByGroup_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_baselineReviewRows_: FY27_baselineReviewRows_, FY27_BASELINE_COLUMNS: FY27_BASELINE_COLUMNS, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_baselineReviewRows_: FY27_baselineReviewRows_, FY27_BASELINE_COLUMNS: FY27_BASELINE_COLUMNS, FY27_applyMerges_: FY27_applyMerges_, FY27_canonProduct_: FY27_canonProduct_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
   };
 }
 
@@ -2380,6 +2452,8 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const prodSheet = FY27_ensureProductNamesSheet_();
+    const prodAliases = FY27_gridToRows_(prodSheet.getDataRange().getValues());
     const tagSheet = FY27_ensureBaselineTagsSheet_();
     const tags = FY27_gridToRows_(tagSheet.getDataRange().getValues());
     const mergeSheet = FY27_ensureMergeSheet_();
@@ -2395,7 +2469,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, baselineTags: tags.rows, ihpActive: ihp.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, baselineTags: tags.rows, productAliases: prodAliases.rows, ihpActive: ihp.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -2537,6 +2611,8 @@ function FY27_writeReview_(ss, result, retention) {
   r = add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
   fmt.push([r, 4, "#,##0"], [r, 6, "$#,##0"]);
   if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
+  const up = s.unmappedProducts || [];
+  if (up.length) add(["Product names not in the product catalogue (add them on the '" + FY27_CFG.SHEETS.PRODUCT_NAMES + "' tab)", up.length + " names", up.slice(0, 6).map(function (u) { return u.name + " (" + u.rows + ")"; }).join("; ")]);
   const br = s.baselineRemoved || {};
   const tagNF = Object.keys(s.baselineTagStatus || {}).filter(function (k) { return s.baselineTagStatus[k] === "Not found"; }).length;
   r = add(["Baseline rows removed as data errors (tab '" + FY27_CFG.SHEETS.BASELINE_REVIEW + "')", (br.rows || 0) + " rows", "Value $", br.value || 0, "Baseline tags NOT matched (re-tag after a data refresh)", tagNF]);
@@ -2746,6 +2822,27 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Product Names tab ---------------- */
+
+const FY27_PRODUCT_NAMES_HEADER = ["Alias (as it appears in Tableau / OTC)", "Product (current name)", "Note"];
+
+/**
+ * Product names change through a term and differ between Tableau and OTC. The current names / codes are built in (PRODUCT_CATALOG); a name that matches nothing is listed
+ * on the Review tab. Add it here: the alias exactly as it appears, and the current product name it should show as. Applied at the next refresh.
+ */
+function FY27_ensureProductNamesSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  const header = FY27_PRODUCT_NAMES_HEADER;
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.PRODUCT_NAMES);
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.PRODUCT_NAMES);
+  const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
+  if (!header.every(function (h, i) { return cur[i] === h; })) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#FFF2CC");
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 330); sh.setColumnWidth(2, 330); sh.setColumnWidth(3, 300);
+  return sh;
 }
 
 /* ---------------- Baseline Review / Baseline Tags tabs ---------------- */

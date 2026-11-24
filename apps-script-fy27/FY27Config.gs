@@ -11,6 +11,7 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    PRODUCT_NAMES: "Product Names",
     BASELINE_REVIEW: "Baseline Review",
     BASELINE_TAGS: "Baseline Tags",
     RETENTION_GROUP: "Retention by Group",
@@ -158,6 +159,31 @@ const FY27_CFG = {
   // Flat-fee groups (Med / Allied) keep their own weights unless PENDING_RATING_INCLUDES_FLAT_FEE.
   PENDING_WEIGHT_BY_RATING: { green: 0.90, yellow: 0.80, red: 0.55, gray: 0.50, grey: 0.50, black: 0.25, "default": 0.80 },
   PENDING_RATING_INCLUDES_FLAT_FEE: false,
+  // Current product catalogue (names and codes as of the latest product list). Product names and codes change through a term and differ between Tableau and OTC, so every
+  // product name is mapped to ONE current name for display and grouping (e.g. "Curriculum Plus" and "NCLEX RN - Curriculum Plus" are the same product). Order matters: first match wins.
+  // A line matches by product code (OTC) or by alias (a fragment of the name, whole words, ignoring case and punctuation) and must not contain a "not" word. Names that match nothing
+  // stay as they are and are listed on the Review tab; add them on the "Product Names" tab (alias -> current name) without touching code. Matching of Tableau lines to OTC cohorts still
+  // uses the original names (RN / PN family); only the displayed / grouped product changes.
+  PRODUCT_CATALOG: [
+    { name: "NCLEX PN - PN Prep Select", codes: ["NCLXPNIT"], aliases: ["pn prep select", "nclex pn prep select"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX PN - PN Curriculum Plus", codes: ["NCPNITD"], aliases: ["pn curriculum plus", "nclex pn curriculum plus"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Curriculum Plus International", codes: ["NCLXINST9"], aliases: ["curriculum plus international"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Curriculum Plus", codes: ["OLNCLSYR"], aliases: ["curriculum plus"], not: ["pn", "international"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Prep Select", codes: ["OLNCLINST"], aliases: ["rn prep select", "prep select"], not: ["pn"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Total Prep", codes: ["RNDXCATIN"], aliases: ["total prep"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Testing Select", codes: ["NCLXITP1"], aliases: ["testing select"], groups: ["NURSING COURSE"] },
+    { name: "NCLEX RN - Question Select", codes: ["RNQSINST"], aliases: ["question select"], groups: ["NURSING COURSE"] },
+    { name: "Single Test PN", codes: [], aliases: ["single test pn"], groups: ["NURSING COURSE"] },
+    { name: "Single Test RN", codes: ["RNSINGTES"], aliases: ["single test rn", "single test"], not: ["pn"], groups: ["NURSING COURSE"] },
+    { name: "Family Nurse Practitioner (FNP)", codes: ["FNPBINST"], aliases: ["family nurse practitioner", "fnp"], groups: ["NURSING COURSE"] },
+    { name: "Admissions", codes: ["RNATI", "PNATI"], aliases: ["admissions"], groups: ["NURSING COURSE"] },
+    { name: "Continuing Professional Development Library", codes: ["CELIBRARY"], aliases: ["continuing professional development", "cpd library"], groups: ["NURSING COURSE"] },
+    { name: "Adult-Gerontology Primary Care Nurse Practitioner", codes: [], aliases: ["adult gerontology primary care"], groups: ["NURSING COURSE"] },
+    { name: "GN iHP", codes: [], aliases: ["gn ihp", "ihp grad", "ihp graduate"], groups: ["IHUMAN"] },
+    { name: "UNE iHP", codes: [], aliases: ["une ihp", "ihp une"], groups: ["IHUMAN"] }
+  ],
+  // Product groups whose names are checked against the catalogue (names that match nothing are listed on the Review tab).
+  PRODUCT_CATALOG_GROUPS: ["NURSING COURSE", "IHUMAN"],
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,

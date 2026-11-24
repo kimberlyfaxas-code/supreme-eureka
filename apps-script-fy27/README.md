@@ -149,6 +149,14 @@ a one-line-per-group summary on top (baseline $, predicted gross / net / confirm
 crosstab, and the 2026 team forecast like for like), then a block per group with every model, the actual history and the team figure. The baseline per group is the full Tableau baseline of that group
 (iHP accounts dropped from the active list stay in the baseline as lost). Needs the raw crosstab tab and the 2026 forecast reference tab for the actual / team columns; blank when they are missing.
 
+## One current name per product (`PRODUCT_CATALOG`, `Product Names` tab)
+Product names and codes change through a term and differ between Tableau and OTC ("Curriculum Plus", "NCLEX RN - Curriculum Plus", ...). Every product name is mapped to ONE current name
+(from the latest product list: NCLEX RN - Curriculum Plus / Prep Select / Total Prep / Testing Select / Question Select / Curriculum Plus International, NCLEX PN - PN Curriculum Plus / PN Prep Select,
+Single Test RN / PN, FNP, Admissions, Continuing Professional Development Library, GN iHP, UNE iHP) by product code (OTC `product_code`) or by alias words, first match wins. A bare "Curriculum Plus"
+is RN Curriculum Plus. The mapped name is what is shown and grouped; matching Tableau lines to OTC cohorts still uses the original names (RN / PN family). Names that match nothing keep their
+own name and are listed on the Review tab; add them on the `Product Names` tab (alias exactly as it appears -> current name), no code change needed. The baseline-tag key uses the original name,
+so tags are not affected; line-key numbering for lines sharing an account/group/month can shift once.
+
 ## Prep Select is always roster chasing
 `ROSTER_CHASING_PRODUCTS` (default: product name contains "prep select", any case) are sold per learner per academic term, so the roster is chased every term:
 their OTC cohorts are booking type `Roster Chasing` (stage `Not started`) even when the cohort has a code, and a baseline repeated by assumption is `Roster Chasing`

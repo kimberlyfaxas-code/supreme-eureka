@@ -108,6 +108,8 @@ function FY27_run() {
     const ov = FY27_gridToRows_(ovSheet.getDataRange().getValues());
     const manualSheet = FY27_ensureManualSheet_();
     const manual = FY27_gridToRows_(manualSheet.getDataRange().getValues());
+    const prodSheet = FY27_ensureProductNamesSheet_();
+    const prodAliases = FY27_gridToRows_(prodSheet.getDataRange().getValues());
     const tagSheet = FY27_ensureBaselineTagsSheet_();
     const tags = FY27_gridToRows_(tagSheet.getDataRange().getValues());
     const mergeSheet = FY27_ensureMergeSheet_();
@@ -123,7 +125,7 @@ function FY27_run() {
     ss.toast("Building forecast (" + tableau.rows.length + " baseline rows, " + otc.rows.length + " OTC rows)...", "FY27 Forecast", 8);
     const input = {
       tableau: tableau.rows, otc: otc.rows, salesforce: sf.rows, overrides: ov.rows,
-      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, baselineTags: tags.rows, ihpActive: ihp.rows, now: new Date()
+      adjustments: adjustments.rows, manual: manual.rows, carry: carry.rows, merges: merges.rows, baselineTags: tags.rows, productAliases: prodAliases.rows, ihpActive: ihp.rows, now: new Date()
     };
     const result = FY27_buildForecast(input, cfg);
 
@@ -265,6 +267,8 @@ function FY27_writeReview_(ss, result, retention) {
   r = add(["iHP active-account list", ih.active ? ih.activeAccounts + " IDs on the list" : "tab empty: no filtering", "iHP lines ignored (account not on the list)", ih.lines || 0, "Baseline $ ignored", ih.baseline || 0]);
   fmt.push([r, 4, "#,##0"], [r, 6, "$#,##0"]);
   if (ih.active && (ih.notFound || []).length) add(["iHP list accounts not found in the data (name/ID mismatch, or no bookings)", ih.notFound.length, ih.notFound.slice(0, 12).join("; ")]);
+  const up = s.unmappedProducts || [];
+  if (up.length) add(["Product names not in the product catalogue (add them on the '" + FY27_CFG.SHEETS.PRODUCT_NAMES + "' tab)", up.length + " names", up.slice(0, 6).map(function (u) { return u.name + " (" + u.rows + ")"; }).join("; ")]);
   const br = s.baselineRemoved || {};
   const tagNF = Object.keys(s.baselineTagStatus || {}).filter(function (k) { return s.baselineTagStatus[k] === "Not found"; }).length;
   r = add(["Baseline rows removed as data errors (tab '" + FY27_CFG.SHEETS.BASELINE_REVIEW + "')", (br.rows || 0) + " rows", "Value $", br.value || 0, "Baseline tags NOT matched (re-tag after a data refresh)", tagNF]);
@@ -474,6 +478,27 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Product Names tab ---------------- */
+
+const FY27_PRODUCT_NAMES_HEADER = ["Alias (as it appears in Tableau / OTC)", "Product (current name)", "Note"];
+
+/**
+ * Product names change through a term and differ between Tableau and OTC. The current names / codes are built in (PRODUCT_CATALOG); a name that matches nothing is listed
+ * on the Review tab. Add it here: the alias exactly as it appears, and the current product name it should show as. Applied at the next refresh.
+ */
+function FY27_ensureProductNamesSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  const header = FY27_PRODUCT_NAMES_HEADER;
+  let sh = ss.getSheetByName(FY27_CFG.SHEETS.PRODUCT_NAMES);
+  if (!sh) sh = ss.insertSheet(FY27_CFG.SHEETS.PRODUCT_NAMES);
+  const cur = sh.getRange(1, 1, 1, header.length).getValues()[0];
+  if (!header.every(function (h, i) { return cur[i] === h; })) sh.getRange(1, 1, 1, header.length).setValues([header]);
+  sh.getRange(1, 1, 1, header.length).setFontWeight("bold").setBackground("#FFF2CC");
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 330); sh.setColumnWidth(2, 330); sh.setColumnWidth(3, 300);
+  return sh;
 }
 
 /* ---------------- Baseline Review / Baseline Tags tabs ---------------- */
