@@ -483,8 +483,39 @@ function FY27_buildForecast(input, cfg) {
     }
     return name || raw;
   };
-  base.forEach(function (b) { b.rawProductName = b.productName; b.productName = mapName(b.productName, FY27_str_(FY27_pick_(b.raw, ["Product Code", "product_code"])), b.group); });
-  otcAll.forEach(function (o) { o.rawProductName = o.productName; o.productName = mapName(o.productName, o.productCode, o.group); });
+  // A bare "Curriculum Plus" / "Prep Select" is RN or PN. Decide from the account's OTHER nursing line items: RN names only -> RN, PN names only -> PN; if both are present (or none),
+  // from "RN" / "PN" in the account name, then the default RN.
+  const rnPn = cfg.PRODUCT_RN_PN_PAIRS || {};
+  const acctEv = {};
+  const noteEv = function (id, text, fam, group) {
+    if (!id || FY27_str_(group).toUpperCase() !== "NURSING COURSE") return;
+    const x = acctEv[id] || (acctEv[id] = { RN: false, PN: false });
+    const k = " " + FY27_prodKey_(text) + " ";
+    if (k.indexOf(" pn ") >= 0) x.PN = true; else if (k.indexOf(" rn ") >= 0) x.RN = true;
+    if (fam === "PN") x.PN = true; else if (fam === "RN") x.RN = true;
+  };
+  base.forEach(function (b) { noteEv(b.fullId, b.productName, b.family, b.group); });
+  otcAll.forEach(function (o) { noteEv(o.fullId, o.productName, o.family, o.group); });
+  const resolveBare = function (name, raw, id, accountName) {
+    const pn = rnPn[name];
+    if (!pn) return name;
+    const k = " " + FY27_prodKey_(raw) + " ";
+    if (k.indexOf(" rn ") >= 0 || k.indexOf(" pn ") >= 0) return name;           // the name says which one
+    const x = acctEv[id] || { RN: false, PN: false };
+    if (x.PN && !x.RN) return pn;
+    if (x.RN && !x.PN) return name;
+    const an = " " + FY27_prodKey_(accountName) + " ";
+    if (an.indexOf(" pn ") >= 0 && an.indexOf(" rn ") < 0) return pn;
+    return name;
+  };
+  base.forEach(function (b) {
+    b.rawProductName = b.productName;
+    b.productName = resolveBare(mapName(b.productName, FY27_str_(FY27_pick_(b.raw, ["Product Code", "product_code"])), b.group), b.rawProductName, b.fullId, FY27_str_(b.raw["Account Name"]));
+  });
+  otcAll.forEach(function (o) {
+    o.rawProductName = o.productName;
+    o.productName = resolveBare(mapName(o.productName, o.productCode, o.group), o.rawProductName, o.fullId, o.accountName);
+  });
   const baseAll = base.slice();
   const tagCfg = {};
   (cfg.BASELINE_TAGS || []).forEach(function (t) { tagCfg[t.name] = t.action; });
