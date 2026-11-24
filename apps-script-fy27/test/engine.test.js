@@ -1360,28 +1360,4 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const out = E.FY27_baselineReviewRows_(r.baselineRows);
   assert.ok(out.some((row) => /Large:/.test(row[E.FY27_BASELINE_COLUMNS.indexOf("Looks like")])));
 })();
-// 75. Product names map to one current product (catalogue / code / Product Names tab); unmatched names are reported; matching to OTC still works on the original names
-(function () {
-  const canon = (n, code, g) => E.FY27_canonProduct_(n, code, g || "NURSING COURSE", CFG, null);
-  assert.strictEqual(canon("Curriculum Plus"), "NCLEX RN - Curriculum Plus");
-  assert.strictEqual(canon("NCLEX RN - Curriculum Plus"), "NCLEX RN - Curriculum Plus");
-  assert.strictEqual(canon("NCLEX RN Prep Select"), "NCLEX RN - Prep Select");
-  assert.strictEqual(canon("PN Curriculum Plus"), "NCLEX PN - PN Curriculum Plus");
-  assert.strictEqual(canon("NCLEX PN Prep Select"), "NCLEX PN - PN Prep Select");
-  assert.strictEqual(canon("Curriculum Plus International"), "NCLEX RN - Curriculum Plus International");
-  assert.strictEqual(canon("Something Old", "OLNCLSYR"), "NCLEX RN - Curriculum Plus", "a product code wins over an unknown name");
-  assert.strictEqual(canon("NCLEX PN Enrichment"), "");
-  assert.strictEqual(canon("Curriculum Plus", "", "MED COURSE"), "", "catalogue entries only apply to their product groups");
-  assert.strictEqual(E.FY27_canonProduct_("Old Name X", "", "NURSING COURSE", CFG, { "old name x": "NCLEX RN - Total Prep" }), "NCLEX RN - Total Prep", "the Product Names tab wins");
-  // two names for one product on one account and month become ONE product name on the line
-  const T = [tab({ "FULL ID": "0014u000025PRODM001", "Product Name": "NCLEX RN - Curriculum Plus", "Baseline Amount - Tableau": "1000" }),
-             tab({ "FULL ID": "0014u000025PRODM001", "Product Name": "Curriculum Plus", "Baseline Amount - Tableau": "2000" }),
-             tab({ "FULL ID": "0014u000025PRODM001", "Product Name": "Mystery Product", "Baseline Amount - Tableau": "300" })];
-  const r = E.FY27_buildForecast({ tableau: T, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
-  const names = r.lines.map((l) => l.productName).sort();
-  assert.deepStrictEqual(names, ["NCLEX RN - Curriculum Plus; Mystery Product"], "the two names for the same product show once; the unknown product keeps its own name");
-  assert.deepStrictEqual(r.stats.unmappedProducts.map((u) => u.name), ["Mystery Product"]);
-  const r2 = E.FY27_buildForecast({ tableau: T, otc: [], salesforce: [], overrides: [], adjustments: [], productAliases: [{ "Alias (as it appears in Tableau / OTC)": "Mystery Product", "Product (current name)": "NCLEX RN - Total Prep" }], now: new Date(2026, 10, 23) }, CFG);
-  assert.deepStrictEqual(r2.stats.unmappedProducts, []);
-})();
 console.log("all engine tests passed");

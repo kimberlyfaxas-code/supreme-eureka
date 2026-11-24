@@ -43,7 +43,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", "Session", "Utilities", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_ensureProductNamesSheet_, FY27_writeBaselineReview_, FY27_ensureBaselineTagsSheet_, FY27_writeBaselineTagStatus_, FY27_onEditBaseline_, FY27_BASELINE_COLUMNS, FY27_writeRetentionGroups_, FY27_retentionByGroup_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_writeBaselineReview_, FY27_ensureBaselineTagsSheet_, FY27_writeBaselineTagStatus_, FY27_onEditBaseline_, FY27_BASELINE_COLUMNS, FY27_writeRetentionGroups_, FY27_retentionByGroup_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -102,7 +102,6 @@ assert.ok(ihpSh.writes.length >= 1, "iHP tab header written on first creation");
   assert.ok(/0014u000025LINKAA1/.test(rowsIn[0]["Account Link"]));
   assert.strictEqual(rowsIn[1]["Account Link"], undefined);
 }
-assert.ok(api.FY27_ensureProductNamesSheet_().writes.length >= 1, "Product Names tab header written");
 const mg = api.FY27_ensureMergeSheet_();
 api.FY27_writeMergeStatus_(mg, [{ row: 2, status: "Applied: 3 rows now count as X" }]);
 assert.strictEqual(mg.cells["2,4"], "Applied: 3 rows now count as X");

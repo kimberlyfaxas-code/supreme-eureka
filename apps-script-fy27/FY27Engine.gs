@@ -167,35 +167,6 @@ function FY27_familiesCompatible_(a, b) {
   return a === b || a === "Other" || b === "Other";
 }
 
-/** Lower case, punctuation removed, single spaces: the form product names are compared in. */
-function FY27_prodKey_(s) { return FY27_str_(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim(); }
-
-/**
- * The ONE current name for a product: an alias from the "Product Names" tab (exact), else the catalogue by product code, else by alias words.
- * Returns the current name, or "" when nothing matches (the caller keeps the original name).
- */
-function FY27_canonProduct_(rawName, code, group, cfg, userAliases) {
-  const nk = FY27_prodKey_(rawName);
-  if (!nk) return "";
-  if (userAliases && userAliases[nk]) return userAliases[nk];
-  const g = FY27_str_(group).toUpperCase();
-  const cu = FY27_str_(code).toUpperCase();
-  const padded = " " + nk + " ";
-  const cat = cfg.PRODUCT_CATALOG || [];
-  for (let i = 0; i < cat.length; i++) {
-    const p = cat[i];
-    if (p.groups && p.groups.indexOf(g) < 0) continue;
-    if (cu && (p.codes || []).indexOf(cu) >= 0) return p.name;
-  }
-  for (let i = 0; i < cat.length; i++) {
-    const p = cat[i];
-    if (p.groups && p.groups.indexOf(g) < 0) continue;
-    if ((p.not || []).some(function (w) { return padded.indexOf(" " + FY27_prodKey_(w) + " ") >= 0; })) continue;
-    if ((p.aliases || []).some(function (a) { return padded.indexOf(" " + FY27_prodKey_(a) + " ") >= 0; })) return p.name;
-  }
-  return "";
-}
-
 /** True when `text` contains any of the (case-insensitive) fragments. */
 function FY27_matchesAny_(text, fragments) {
   const t = FY27_str_(text).toLowerCase();
@@ -469,22 +440,6 @@ function FY27_buildForecast(input, cfg) {
     .filter(function (b) { return b.fullId || b.baseAmt || b.group; });
   // Baseline tags (the "Baseline Review" tab): a CSM / analyst marks a baseline row as a data error (removed from the baseline), a one-time fee (stays in the
   // baseline, never forecast) or verified (a note). Rows are identified by account, product, month and amount (+ a count if identical rows repeat).
-  // one current name per product (display / grouping); matching to OTC cohorts keeps using the original names (family)
-  const userAliases = {};
-  (input.productAliases || []).forEach(function (r) {
-    const a = FY27_prodKey_(FY27_pick_(r, ["Alias (as it appears in Tableau / OTC)", "Alias"])), n = FY27_str_(FY27_pick_(r, ["Product (current name)", "Product"]));
-    if (a && n) userAliases[a] = n;
-  });
-  const unmappedProducts = {};
-  const mapName = function (raw, code, group) {
-    const name = FY27_canonProduct_(raw, code, group, cfg, userAliases);
-    if (!name && raw && (cfg.PRODUCT_CATALOG_GROUPS || []).indexOf(FY27_str_(group).toUpperCase()) >= 0) {
-      const k = group + "|" + raw; unmappedProducts[k] = unmappedProducts[k] || { group: group, name: raw, rows: 0 }; unmappedProducts[k].rows++;
-    }
-    return name || raw;
-  };
-  base.forEach(function (b) { b.rawProductName = b.productName; b.productName = mapName(b.productName, FY27_str_(FY27_pick_(b.raw, ["Product Code", "product_code"])), b.group); });
-  otcAll.forEach(function (o) { o.rawProductName = o.productName; o.productName = mapName(o.productName, o.productCode, o.group); });
   const baseAll = base.slice();
   const tagCfg = {};
   (cfg.BASELINE_TAGS || []).forEach(function (t) { tagCfg[t.name] = t.action; });
@@ -492,7 +447,7 @@ function FY27_buildForecast(input, cfg) {
   (input.baselineTags || []).forEach(function (r) { const k = FY27_str_(r["Baseline Key"]); if (k && (FY27_str_(r["Tag"]) || FY27_str_(r["Comment"]))) tagByKey[k] = r; });
   const occ = {};
   base.forEach(function (b) {
-    const k0 = [b.billingId, b.fullId, b.group, b.rawProductName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
+    const k0 = [b.billingId, b.fullId, b.group, b.productName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
     occ[k0] = (occ[k0] || 0) + 1; b.key = k0 + "|" + occ[k0]; b.k0 = k0;
     const t = tagByKey[b.key];
     b.tag = t ? FY27_str_(t["Tag"]) : ""; b.tagComment = t ? FY27_str_(t["Comment"]) : ""; b.tagAction = b.tag ? (tagCfg[b.tag] || "") : "";
@@ -1520,7 +1475,6 @@ function FY27_buildForecast(input, cfg) {
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
       ihpIgnored: ihpIgnored,
-      unmappedProducts: Object.keys(unmappedProducts).map(function (k) { return unmappedProducts[k]; }).sort(function (a, b) { return b.rows - a.rows; }),
       baselineRemoved: baselineRemoved,
       baselineTagStatus: baselineTagStatus,
       ihpSplit: ihpSplit,
@@ -2044,6 +1998,6 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionByGroup_: FY27_retentionByGroup_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_baselineReviewRows_: FY27_baselineReviewRows_, FY27_BASELINE_COLUMNS: FY27_BASELINE_COLUMNS, FY27_applyMerges_: FY27_applyMerges_, FY27_canonProduct_: FY27_canonProduct_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_baselineReviewRows_: FY27_baselineReviewRows_, FY27_BASELINE_COLUMNS: FY27_BASELINE_COLUMNS, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
   };
 }
