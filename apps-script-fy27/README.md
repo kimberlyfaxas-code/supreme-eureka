@@ -129,11 +129,17 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Pending Contract weighted by health rating
+`PENDING_WEIGHT_BY_RATING` (Green 90%, Yellow 80%, Red 55%, Gray 50%, Black 25%, blank 80%) replaces the "how long ago did the contract end" tiers for every Pending Contract line (contract ended, or no contract
+in OTC yet): signing can simply take longer, and the client's health is the better guide. Med / Allied flat-fee groups keep their own rules (`PENDING_RATING_INCLUDES_FLAT_FEE`). The Review tab's weight-basis table
+shows "Pending contract, Green rating" etc. Set `PENDING_WEIGHT_BY_RATING = null` to go back to the tiers. The values are starting points (the as-of backtest has too few lines per rating to calibrate them);
+compare the retention rows on the Review / Retention by Group tabs to the history before publishing. A Pending Contract line set by a CSM and no rating weight falls back to `WEIGHTS["Pending Contract"]` (80%).
+
 ## Checking the baseline (`Baseline Review` tab, `Baseline Tags` store)
 `Baseline Review` lists every baseline row (Tableau Bookings Data + Adjustments tab), sorted CSM > account > month, with a yellow **Baseline Tag** dropdown and a **Comment**.
 Tags (`BASELINE_TAGS`): *Data error / Duplicate - remove from baseline* takes the row out of the baseline altogether (not forecast, not in the baseline check or any retention denominator;
 the row stays on the list, greyed, so it can be undone); *One-time fee - keep in baseline, do not forecast* keeps it in the baseline but the line is Not Expected / Non-Recurring at $0;
-*Checked - correct* only adds an FYI note. Edits are saved to `Baseline Tags` as they are typed (`onEdit`) and applied at the next refresh; clearing the cell undoes the tag. Rows are keyed on
+*Checked - correct* only adds an FYI note. The **Looks like** column suggests rows to check: a possible duplicate (identical rows), an unusually large booking (5x the median of the account's other bookings in the group, over $5,000), a baseline 5x the OTC estimate, or an adjustment; suggestions are highlighted and counted on the Review tab. Edits are saved to `Baseline Tags` as they are typed (`onEdit`) and applied at the next refresh; clearing the cell undoes the tag. Rows are keyed on
 billing ID + full ID + product group + product + baseline month + amount (+ a count for identical repeats), so a tag survives a re-paste of the same data; if the Tableau row itself changes the tag
 shows `NOT FOUND` on `Baseline Tags` and in the Review count. The source tabs are never edited.
 

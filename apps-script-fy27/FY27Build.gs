@@ -269,6 +269,8 @@ function FY27_writeReview_(ss, result, retention) {
   const tagNF = Object.keys(s.baselineTagStatus || {}).filter(function (k) { return s.baselineTagStatus[k] === "Not found"; }).length;
   r = add(["Baseline rows removed as data errors (tab '" + FY27_CFG.SHEETS.BASELINE_REVIEW + "')", (br.rows || 0) + " rows", "Value $", br.value || 0, "Baseline tags NOT matched (re-tag after a data refresh)", tagNF]);
   fmt.push([r, 4, "$#,##0"]);
+  const sugg = (result.baselineRows || []).filter(function (x) { return x.suggest && x.suggest !== "Adjustment" && x.suggest !== "Negative adjustment" && !x.tag; }).length;
+  add(["Baseline rows with a suggestion to check (filter 'Looks like' on the Baseline Review tab)", sugg + " rows"]);
   const sp = s.ihpSplit || {};
   if (sp.lines) { r = add(["iHP student / bookstore-pay lines with an FYI note (bookings may land a month later)", sp.lines + " lines", "Value $", sp.value]); fmt.push([r, 4, "$#,##0"]); }
   (ih.top || []).forEach(function (t, i) { const tr = add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); fmt.push([tr, 4, "$#,##0"]); });
@@ -529,20 +531,26 @@ function FY27_writeBaselineReview_(ss, result) {
   sh.getRange(2, colOf("Baseline Month"), n, 1).setNumberFormat("mmm-yy");
   sh.getRange(2, colOf("Baseline $"), n, 1).setNumberFormat("$#,##0");
   const widths = { "CSM": 110, "Account Name": 230, "Product Group": 110, "Product Name": 190, "Baseline Month": 75, "Baseline $": 85, "Baseline Tag": 250, "Comment": 220, "Saved?": 110,
-    "State": 170, "Looks like": 120, "Rating": 60, "Billing ID": 140, "Full ID": 140, "Booking ID": 120, "Source Tab": 80, "Baseline Key": 60 };
+    "State": 170, "Looks like": 330, "Rating": 60, "Billing ID": 140, "Full ID": 140, "Booking ID": 120, "Source Tab": 80, "Baseline Key": 60 };
   headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
   sh.getRange(2, colOf("Baseline Tag"), n, 1).setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList((cfg.BASELINE_TAGS || []).map(function (t) { return t.name; }), true).setAllowInvalid(false).build());
   // removed rows are greyed out but stay on the list so the tag can be undone
   const stateCol = String.fromCharCode(64 + colOf("State"));
-  sh.setConditionalFormatRules([SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=LEFT($" + stateCol + "2,7)=\"Removed\"")
-    .setFontColor("#999999").setBackground("#EEEEEE").setRanges([sh.getRange(2, 1, n, headers.length)]).build()]);
+  const lookCol = String.fromCharCode(64 + colOf("Looks like"));
+  sh.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=LEFT($" + stateCol + "2,7)=\"Removed\"")
+      .setFontColor("#999999").setBackground("#EEEEEE").setRanges([sh.getRange(2, 1, n, headers.length)]).build(),
+    // a suggestion other than a plain adjustment (duplicate / unusually large / far above the OTC estimate) is highlighted
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=AND($" + lookCol + "2<>\"\",$" + lookCol + "2<>\"Adjustment\",$" + lookCol + "2<>\"Negative adjustment\")")
+      .setBackground("#FCE5CD").setBold(true).setRanges([sh.getRange(2, colOf("Looks like"), n, 1)]).build()]);
   sh.getRange(1, 1, out.length, headers.length).createFilter();
   sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function (p) { if (String(p.getDescription()).indexOf("FY27") === 0) p.remove(); });
   const warn = function (c1, c2) { if (c2 < c1) return; const p = sh.getRange(2, c1, n, c2 - c1 + 1).protect(); p.setDescription("FY27 calculated columns"); p.setWarningOnly(true); };
   warn(1, colOf("Baseline Tag") - 1); warn(colOf("Comment") + 1, headers.length);
   sh.hideColumns(colOf("Baseline Key"));
   sh.getRange(1, colOf("Baseline Tag")).setNote("YELLOW = you can type here. Data error / Duplicate: the row is removed from the baseline (and from retention). One-time fee: stays in the baseline but is never forecast. Checked: a note only. Saved as you type; applied at the next refresh.");
+  sh.getRange(1, colOf("Looks like")).setNote("Why this row might be a data error: a possible duplicate, an unusually large booking for the account / product, or far above the OTC estimate. Orange = worth a look; filter this column to review them first.");
   sh.getRange(1, colOf("Baseline $")).setNote("What the client booked in " + (cfg.FORECAST_YEAR - 1) + " (Tableau) or the adjustment amount (Adjustments tab). Negative = adjustment.");
   return sh;
 }

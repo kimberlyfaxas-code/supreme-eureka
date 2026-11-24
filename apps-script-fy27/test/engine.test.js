@@ -12,6 +12,7 @@ CFG.AMOUNT_BASIS = "otc";   // legacy amount tests; "min" / "baseline" are teste
 CFG.USE_ADJUSTMENTS_TAB = true;   // engine tests feed the Adjustments tab in explicitly   // credit logic is tested with the switch on; see test 22 for off
 CFG.ACTUALS_THROUGH = "2026-11";
 CFG.DORMANT_PROGRAM_ACTION = "weight";   // legacy tests; the shipped default is "zero" (test 61)
+CFG.PENDING_WEIGHT_BY_RATING = null;   // legacy tests use the segment rules; rating weights are tested in 73
 CFG.EARLY_BOOKED_TREATMENT = "keep";   // legacy tests count booked cohorts as Captured; see tests 55-57 for the prior-year rule
 
 const tab = (o) => Object.assign({
@@ -1325,5 +1326,38 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.strictEqual(new Set(dup.baselineRows.map((x) => x.key)).size, 2);
   const rowsOut = E.FY27_baselineReviewRows_(r.baselineRows);
   assert.strictEqual(rowsOut[0].length, E.FY27_BASELINE_COLUMNS.length);
+})();
+// 73. Pending Contract lines are weighted by health rating (not by how long ago the contract ended); flat-fee groups keep their own rules
+(function () {
+  CFG.PENDING_WEIGHT_BY_RATING = { green: 0.9, yellow: 0.8, red: 0.55, gray: 0.5, grey: 0.5, black: 0.25, "default": 0.8 };
+  const P = (id, rating, extra) => tab(Object.assign({ "FULL ID": id, "Billing ID": "0013b00001" + id.slice(-5), "Account Name": "Acct " + id.slice(-5), "Rating": rating, "Baseline Amount - Tableau": "10000" }, extra || {}));
+  // contract in OTC that ended long before the forecast month -> Pending Contract
+  const O = (id) => otc({ "Full ID": id, "Contract End Date": "2026-03-01", "order_estimated_start_date": "2026-03-01", "cohort_name": "Old", "order_status": "Complete", "order_actual_start_date": "2026-03-01" });
+  const ids = { g: "0014u000025PNDG0001", y: "0014u000025PNDY0001", r: "0014u000025PNDR0001", b: "0014u000025PNDB0001", m: "0014u000025PNDM0001" };
+  const res = E.FY27_buildForecast({ tableau: [P(ids.g, "Green"), P(ids.y, "Yellow"), P(ids.r, "Red"), P(ids.b, ""), P(ids.m, "Green", { "Product Group": "MED COURSE", "Product Name": "Step 1 Live Online" })],
+    otc: [O(ids.g), O(ids.y), O(ids.r), O(ids.b), O(ids.m)], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const byAcct = (id) => res.lines.find((l) => l.fullId.slice(0, 15) === id.slice(0, 15));
+  assert.strictEqual(byAcct(ids.g).expectation, "Pending Contract");
+  assert.strictEqual(byAcct(ids.g).weight, 0.9); assert.strictEqual(byAcct(ids.g).segment, "Pending contract, Green rating");
+  assert.strictEqual(byAcct(ids.y).weight, 0.8);
+  assert.strictEqual(byAcct(ids.r).weight, 0.55);
+  assert.strictEqual(byAcct(ids.b).weight, 0.8, "blank rating uses the default");
+  assert.notStrictEqual(byAcct(ids.m).segment, "Pending contract, Green rating", "Med / Allied flat fee keeps its own rule");
+  CFG.PENDING_WEIGHT_BY_RATING = null;
+})();
+
+// 74. Baseline Review suggestions: duplicates, unusually large bookings, far above the OTC estimate
+(function () {
+  const B = (amt, month, extra) => tab(Object.assign({ "FULL ID": "0014u000025SUGG0001", "Billing ID": "0013b00001SUGG01", "Account Name": "Sugg U", "Baseline Amount - Tableau": String(amt),
+    "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": month.replace("2026", "2027") }, extra || {}));
+  const rows = [B(6000, "1/1/2026"), B(6000, "1/1/2026"), B(7000, "2/1/2026"), B(6500, "3/1/2026"), B(80000, "4/1/2026"), B(300, "5/1/2026", { "Baseline Amount - Tableau": "-300" })];
+  const r = E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  const sug = (m) => r.baselineRows.filter((x) => x.baseMonth === m).map((x) => x.suggest);
+  assert.ok(sug("2026-01").every((s) => /Possible duplicate: 2 identical rows/.test(s)));
+  assert.ok(/Large: 12x the median/.test(sug("2026-04")[0]), sug("2026-04")[0]);
+  assert.strictEqual(sug("2026-02")[0], "", "an ordinary row has no suggestion");
+  assert.strictEqual(sug("2026-05")[0], "Negative adjustment");
+  const out = E.FY27_baselineReviewRows_(r.baselineRows);
+  assert.ok(out.some((row) => /Large:/.test(row[E.FY27_BASELINE_COLUMNS.indexOf("Looks like")])));
 })();
 console.log("all engine tests passed");

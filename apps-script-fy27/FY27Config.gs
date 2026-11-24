@@ -149,6 +149,15 @@ const FY27_CFG = {
     { name: "One-time fee - keep in baseline, do not forecast", action: "onetime" },
     { name: "Checked - correct", action: "note" }
   ],
+  // Baseline Review "Looks like" suggestions: a booking of at least BASELINE_REVIEW_MIN that is LARGE_MULT times the median of the account's other bookings in the
+  // group, or LARGE_MULT times its OTC estimate, is suggested as a possible data error / one-time fee. Identical repeated rows are suggested as duplicates.
+  BASELINE_REVIEW_MIN: 5000,
+  BASELINE_REVIEW_LARGE_MULT: 5,
+  // Pending Contract lines (contract ended, or no contract in OTC yet) are weighted by the account's health rating, not by how long ago the contract ended: signing
+  // can simply take longer. Keys are lower-case ratings; "default" is used when the rating is blank or unknown. null = use the segment rules below instead.
+  // Flat-fee groups (Med / Allied) keep their own weights unless PENDING_RATING_INCLUDES_FLAT_FEE.
+  PENDING_WEIGHT_BY_RATING: { green: 0.90, yellow: 0.80, red: 0.55, gray: 0.50, grey: 0.50, black: 0.25, "default": 0.80 },
+  PENDING_RATING_INCLUDES_FLAT_FEE: false,
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,
@@ -186,7 +195,7 @@ const FY27_CFG = {
   // As-of 2026 backtest, line-level error vs what the team ended with ($ across 551 kept lines): baseline 2.27M, min 2.35M,
   // OTC estimate 3.04M. Tableau baseline total was within 0.4% of the team's total. Booked OTC actuals are never scaled.
   AMOUNT_BASIS: "baseline",
-  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.80, "At Risk": 0.55, "Not Expected": 0 },
 
   // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
   // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).

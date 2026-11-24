@@ -154,6 +154,15 @@ const FY27_CFG = {
     { name: "One-time fee - keep in baseline, do not forecast", action: "onetime" },
     { name: "Checked - correct", action: "note" }
   ],
+  // Baseline Review "Looks like" suggestions: a booking of at least BASELINE_REVIEW_MIN that is LARGE_MULT times the median of the account's other bookings in the
+  // group, or LARGE_MULT times its OTC estimate, is suggested as a possible data error / one-time fee. Identical repeated rows are suggested as duplicates.
+  BASELINE_REVIEW_MIN: 5000,
+  BASELINE_REVIEW_LARGE_MULT: 5,
+  // Pending Contract lines (contract ended, or no contract in OTC yet) are weighted by the account's health rating, not by how long ago the contract ended: signing
+  // can simply take longer. Keys are lower-case ratings; "default" is used when the rating is blank or unknown. null = use the segment rules below instead.
+  // Flat-fee groups (Med / Allied) keep their own weights unless PENDING_RATING_INCLUDES_FLAT_FEE.
+  PENDING_WEIGHT_BY_RATING: { green: 0.90, yellow: 0.80, red: 0.55, gray: 0.50, grey: 0.50, black: 0.25, "default": 0.80 },
+  PENDING_RATING_INCLUDES_FLAT_FEE: false,
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,
@@ -191,7 +200,7 @@ const FY27_CFG = {
   // As-of 2026 backtest, line-level error vs what the team ended with ($ across 551 kept lines): baseline 2.27M, min 2.35M,
   // OTC estimate 3.04M. Tableau baseline total was within 0.4% of the team's total. Booked OTC actuals are never scaled.
   AMOUNT_BASIS: "baseline",
-  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.65, "At Risk": 0.55, "Not Expected": 0 },
+  WEIGHTS: { "Captured": 1, "Expected": 1, "Pending Contract": 0.80, "At Risk": 0.55, "Not Expected": 0 },
 
   // SIMPLIFIED vocabulary (replaces the 2026 Outreach Status x Forecast Category grid; CSMs pick from these on the Overrides tab).
   // Early / On time / Late is no longer chosen by hand: the Timing column is calculated (forecast month vs the baseline month).
@@ -706,10 +715,11 @@ function FY27_buildForecast(input, cfg) {
   const occ = {};
   base.forEach(function (b) {
     const k0 = [b.billingId, b.fullId, b.group, b.productName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
-    occ[k0] = (occ[k0] || 0) + 1; b.key = k0 + "|" + occ[k0];
+    occ[k0] = (occ[k0] || 0) + 1; b.key = k0 + "|" + occ[k0]; b.k0 = k0;
     const t = tagByKey[b.key];
     b.tag = t ? FY27_str_(t["Tag"]) : ""; b.tagComment = t ? FY27_str_(t["Comment"]) : ""; b.tagAction = b.tag ? (tagCfg[b.tag] || "") : "";
   });
+  base.forEach(function (b) { b.dupCount = occ[b.k0]; });
   const baselineRemoved = { rows: 0, value: 0 };
   const baselineTagStatus = {};
   Object.keys(tagByKey).forEach(function (k) { baselineTagStatus[k] = baseAll.some(function (b) { return b.key === k; }) ? "Applied" : "Not found"; });
@@ -1269,6 +1279,25 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
   });
 
+  /* ---- 2-00. Pending Contract lines are weighted by the account's health rating ----
+   * A contract that has ended (or is not in the billing system yet) says little about whether the client renews: signing can simply take longer. The
+   * health rating is the better guide. Flat-fee groups (Med / Allied) keep their own weights. */
+  const pendW = cfg.PENDING_WEIGHT_BY_RATING;
+  if (pendW) {
+    lines.forEach(function (L) {
+      if (L.expectation !== cfg.PENDING_CATEGORY || L.isManual || L.forecastSource === cfg.SOURCES.CARRY || L.status === "Booked") return;
+      if ((cfg.FLAT_FEE_GROUPS || []).indexOf(L.productGroup) >= 0 && !cfg.PENDING_RATING_INCLUDES_FLAT_FEE) return;
+      const rk = FY27_str_(L.rating).toLowerCase();
+      const w = pendW[rk] !== undefined ? pendW[rk] : pendW["default"];
+      if (w === undefined) return;
+      L.weightOverride = w;
+      L.segment = "Pending contract, " + (rk ? rk.charAt(0).toUpperCase() + rk.slice(1) : "no") + " rating";
+    });
+  }
+  // OTC estimate per baseline row (for the Baseline Review suggestions)
+  const otcEstByRow = {};
+  lines.forEach(function (L) { if (L.baseRow !== "" && L.baselineAmount > 0 && L.otcEstimate !== "" && L.otcEstimate !== undefined) otcEstByRow[L.baseRow] = Number(L.otcEstimate) || 0; });
+
   /* ---- 2-0. Baseline tagged "one-time": stays in the baseline, never forecast ---- */
   if (Object.keys(oneTimeRows).length) {
     lines.forEach(function (L) {
@@ -1658,6 +1687,25 @@ function FY27_buildForecast(input, cfg) {
     if (L.flags.some(function (f) { return f.indexOf("not complete yet") >= 0; })) c.baselineIncomplete = true;
   });
 
+  // why a baseline row might be a data error (shown as "Looks like" on the Baseline Review tab)
+  const baselineSuggest = function (b) {
+    const s = [];
+    if (b.baseAmt < 0) s.push("Negative adjustment"); else if (b.isAdj) s.push("Adjustment");
+    if (b.dupCount > 1) s.push("Possible duplicate: " + b.dupCount + " identical rows");
+    const minAmt = cfg.BASELINE_REVIEW_MIN || 5000, mult = cfg.BASELINE_REVIEW_LARGE_MULT || 5;
+    if (b.baseAmt >= minAmt) {
+      const others = baseAll.filter(function (x) { return x !== b && x.group === b.group && (x.fullId ? x.fullId === b.fullId : x.billingId === b.billingId) && x.baseAmt > 0; })
+        .map(function (x) { return x.baseAmt; }).sort(function (p, q) { return p - q; });
+      if (others.length >= 2) {
+        const med = others[Math.floor(others.length / 2)];
+        if (med > 0 && b.baseAmt >= mult * med) s.push("Large: " + Math.round(b.baseAmt / med) + "x the median of this account's other " + b.group + " bookings");
+      }
+      const est = otcEstByRow[b.row];
+      if (est > 0 && b.baseAmt >= mult * est && b.baseAmt - est >= minAmt) s.push("Baseline $" + Math.round(b.baseAmt).toLocaleString() + " vs OTC estimate $" + Math.round(est).toLocaleString());
+    }
+    return s.join(" | ");
+  };
+
   return {
     lines: lines,
     detail: detail,
@@ -1665,7 +1713,7 @@ function FY27_buildForecast(input, cfg) {
     baselineRows: baseAll.map(function (b) {
       return { key: b.key, csm: FY27_str_(b.raw["Client Success Manager"]), account: FY27_str_(b.raw["Account Name"]), group: b.group, productName: b.productName, baseMonth: b.baseMonth,
         fcMonth: b.fcMonth, amount: b.baseAmt, priorType: b.priorType, isAdj: b.isAdj, rating: b.rating, billingId: b.billingId, fullId: FY27_str_(b.raw["FULL ID"]), bookingId: b.bookingId,
-        fromAdjTab: b.fromAdjTab, tag: b.tag, comment: b.tagComment, state: b.tagAction === "remove" ? "Removed from baseline" : b.tagAction === "onetime" ? "Baseline only (not forecast)" : b.tag ? "Tagged" : "" };
+        suggest: baselineSuggest(b), fromAdjTab: b.fromAdjTab, tag: b.tag, comment: b.tagComment, state: b.tagAction === "remove" ? "Removed from baseline" : b.tagAction === "onetime" ? "Baseline only (not forecast)" : b.tag ? "Tagged" : "" };
     }),
     writeback: writeback,
     coverage: Object.keys(cov).sort().map(function (k) { return cov[k]; }),
@@ -2138,7 +2186,7 @@ function FY27_baselineReviewRows_(baselineRows, lineReview) {
     return (a.csm < b.csm ? -1 : a.csm > b.csm ? 1 : 0) || (a.account < b.account ? -1 : a.account > b.account ? 1 : 0) || (a.baseMonth < b.baseMonth ? -1 : a.baseMonth > b.baseMonth ? 1 : 0);
   });
   return sorted.map(function (r) {
-    const looks = r.amount < 0 ? "Negative adjustment" : r.isAdj ? "Adjustment" : "";
+    const looks = r.suggest !== undefined ? r.suggest : (r.amount < 0 ? "Negative adjustment" : r.isAdj ? "Adjustment" : "");
     return [r.csm, r.account, r.group, r.productName, r.baseMonth, r.amount, r.tag, r.comment, "", r.state, looks, r.rating, r.billingId, r.fullId, r.bookingId, r.fromAdjTab ? "Adjustments" : "Tableau", r.key];
   });
 }
@@ -2161,7 +2209,7 @@ function FY27_readmeLines_(cfg) {
     ["Captured - already booked."],
     ["Expected - we expect it to book as shown (counts " + pct("Expected") + " in the weighted forecast)."],
     ["At Risk - could happen but we are not sure (weighted). The 'Why' says what is uncertain."],
-    ["Pending Contract - the client's contract has ended or is not in the billing system yet; a renewal is needed first (weighted)."],
+    ["Pending Contract - the client's contract has ended or is not in the billing system yet; a renewal is needed first. Weighted by the account's health rating (Green " + Math.round(((cfg.PENDING_WEIGHT_BY_RATING || {}).green || 0) * 100) + "%, Yellow " + Math.round(((cfg.PENDING_WEIGHT_BY_RATING || {}).yellow || 0) * 100) + "%, Red " + Math.round(((cfg.PENDING_WEIGHT_BY_RATING || {}).red || 0) * 100) + "%), because signing can simply take longer."],
     ["Not Expected - we do not expect it (counts $0). Pick a reason: Lost, No Revenue This Term, Non-Recurring, Adjustment or Data Error."],
     [""],
     ["WEIGHTED $ - the number to use for totals"],
@@ -2491,6 +2539,8 @@ function FY27_writeReview_(ss, result, retention) {
   const tagNF = Object.keys(s.baselineTagStatus || {}).filter(function (k) { return s.baselineTagStatus[k] === "Not found"; }).length;
   r = add(["Baseline rows removed as data errors (tab '" + FY27_CFG.SHEETS.BASELINE_REVIEW + "')", (br.rows || 0) + " rows", "Value $", br.value || 0, "Baseline tags NOT matched (re-tag after a data refresh)", tagNF]);
   fmt.push([r, 4, "$#,##0"]);
+  const sugg = (result.baselineRows || []).filter(function (x) { return x.suggest && x.suggest !== "Adjustment" && x.suggest !== "Negative adjustment" && !x.tag; }).length;
+  add(["Baseline rows with a suggestion to check (filter 'Looks like' on the Baseline Review tab)", sugg + " rows"]);
   const sp = s.ihpSplit || {};
   if (sp.lines) { r = add(["iHP student / bookstore-pay lines with an FYI note (bookings may land a month later)", sp.lines + " lines", "Value $", sp.value]); fmt.push([r, 4, "$#,##0"]); }
   (ih.top || []).forEach(function (t, i) { const tr = add([i === 0 ? "Largest ignored iHP accounts" : "", t.account, "Baseline $", t.baseline]); fmt.push([tr, 4, "$#,##0"]); });
@@ -2751,20 +2801,26 @@ function FY27_writeBaselineReview_(ss, result) {
   sh.getRange(2, colOf("Baseline Month"), n, 1).setNumberFormat("mmm-yy");
   sh.getRange(2, colOf("Baseline $"), n, 1).setNumberFormat("$#,##0");
   const widths = { "CSM": 110, "Account Name": 230, "Product Group": 110, "Product Name": 190, "Baseline Month": 75, "Baseline $": 85, "Baseline Tag": 250, "Comment": 220, "Saved?": 110,
-    "State": 170, "Looks like": 120, "Rating": 60, "Billing ID": 140, "Full ID": 140, "Booking ID": 120, "Source Tab": 80, "Baseline Key": 60 };
+    "State": 170, "Looks like": 330, "Rating": 60, "Billing ID": 140, "Full ID": 140, "Booking ID": 120, "Source Tab": 80, "Baseline Key": 60 };
   headers.forEach(function (h, i) { sh.setColumnWidth(i + 1, widths[h] || 100); });
   sh.getRange(2, colOf("Baseline Tag"), n, 1).setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList((cfg.BASELINE_TAGS || []).map(function (t) { return t.name; }), true).setAllowInvalid(false).build());
   // removed rows are greyed out but stay on the list so the tag can be undone
   const stateCol = String.fromCharCode(64 + colOf("State"));
-  sh.setConditionalFormatRules([SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=LEFT($" + stateCol + "2,7)=\"Removed\"")
-    .setFontColor("#999999").setBackground("#EEEEEE").setRanges([sh.getRange(2, 1, n, headers.length)]).build()]);
+  const lookCol = String.fromCharCode(64 + colOf("Looks like"));
+  sh.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=LEFT($" + stateCol + "2,7)=\"Removed\"")
+      .setFontColor("#999999").setBackground("#EEEEEE").setRanges([sh.getRange(2, 1, n, headers.length)]).build(),
+    // a suggestion other than a plain adjustment (duplicate / unusually large / far above the OTC estimate) is highlighted
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied("=AND($" + lookCol + "2<>\"\",$" + lookCol + "2<>\"Adjustment\",$" + lookCol + "2<>\"Negative adjustment\")")
+      .setBackground("#FCE5CD").setBold(true).setRanges([sh.getRange(2, colOf("Looks like"), n, 1)]).build()]);
   sh.getRange(1, 1, out.length, headers.length).createFilter();
   sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function (p) { if (String(p.getDescription()).indexOf("FY27") === 0) p.remove(); });
   const warn = function (c1, c2) { if (c2 < c1) return; const p = sh.getRange(2, c1, n, c2 - c1 + 1).protect(); p.setDescription("FY27 calculated columns"); p.setWarningOnly(true); };
   warn(1, colOf("Baseline Tag") - 1); warn(colOf("Comment") + 1, headers.length);
   sh.hideColumns(colOf("Baseline Key"));
   sh.getRange(1, colOf("Baseline Tag")).setNote("YELLOW = you can type here. Data error / Duplicate: the row is removed from the baseline (and from retention). One-time fee: stays in the baseline but is never forecast. Checked: a note only. Saved as you type; applied at the next refresh.");
+  sh.getRange(1, colOf("Looks like")).setNote("Why this row might be a data error: a possible duplicate, an unusually large booking for the account / product, or far above the OTC estimate. Orange = worth a look; filter this column to review them first.");
   sh.getRange(1, colOf("Baseline $")).setNote("What the client booked in " + (cfg.FORECAST_YEAR - 1) + " (Tableau) or the adjustment amount (Adjustments tab). Negative = adjustment.");
   return sh;
 }
