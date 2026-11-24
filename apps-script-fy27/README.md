@@ -129,6 +129,12 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Retention by product group (`Retention by Group` tab)
+The Review tab's retention models are overall rates, so a weak group (e.g. Med) hides inside them. `Retention by Group` repeats the comparison per product group (`PRODUCT_GROUPS`):
+a one-line-per-group summary on top (baseline $, predicted gross / net / confirmed-only retention from the current model, actual gross retention for the last two year pairs from the raw Tableau
+crosstab, and the 2026 team forecast like for like), then a block per group with every model, the actual history and the team figure. The baseline per group is the full Tableau baseline of that group
+(iHP accounts dropped from the active list stay in the baseline as lost). Needs the raw crosstab tab and the 2026 forecast reference tab for the actual / team columns; blank when they are missing.
+
 ## Prep Select is always roster chasing
 `ROSTER_CHASING_PRODUCTS` (default: product name contains "prep select", any case) are sold per learner per academic term, so the roster is chased every term:
 their OTC cohorts are booking type `Roster Chasing` (stage `Not started`) even when the cohort has a code, and a baseline repeated by assumption is `Roster Chasing`

@@ -1274,4 +1274,19 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
     assert.ok(Math.abs(sumW(tbl) - lineW) < 0.05, "weighted totals match");
   });
 })();
+// 71. Retention by product group: group baselines add up to the total baseline; group rows add up to the overall row
+(function () {
+  const G = (id, group, amt) => tab({ "FULL ID": id, "Product Group": group, "Product Name": group === "MED COURSE" ? "Step 1 Live Online" : "NCLEX RN - Curriculum Plus", "Baseline Amount - Tableau": String(amt) });
+  const input = { tableau: [G("0014u000025GRPA0001", "NURSING COURSE", 4000), G("0014u000025GRPB0001", "MED COURSE", 6000)], otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) };
+  const res = E.FY27_buildForecast(input, CFG);
+  assert.strictEqual(res.stats.baselineByGroup["NURSING COURSE"], 4000);
+  assert.strictEqual(res.stats.baselineByGroup["MED COURSE"], 6000);
+  const by = E.FY27_retentionByGroup_(input, CFG, res, null, "2026-10", null);
+  const current = (g) => by[g].models[3];
+  const sum = (f) => CFG.PRODUCT_GROUPS.reduce((s, g) => s + current(g)[f], 0);
+  const overall = E.FY27_retentionSummary_(res, "all");
+  assert.ok(Math.abs(sum("baseline") - overall.baseline) < 0.01);
+  assert.ok(Math.abs(sum("weightedNet") - overall.weightedNet) < 0.01);
+  assert.strictEqual(by["MED COURSE"].models[0].baseline, 6000, "repeat-baseline row uses the group's baseline");
+})();
 console.log("all engine tests passed");

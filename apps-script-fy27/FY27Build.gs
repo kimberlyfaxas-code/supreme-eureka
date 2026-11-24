@@ -137,6 +137,12 @@ function FY27_run() {
       if (rawSheet) retention.history = FY27_historicalRetention_(FY27_gridToRows_(rawSheet.getDataRange().getValues()).rows, FY27_addMonths_(result.stats.actualsThrough, -1));
       const refSheet = ss.getSheetByName(cfg.SHEETS.BT_FINAL);
       if (refSheet) retention.team2026 = FY27_team2026Retention_(FY27_gridToRows_(refSheet.getDataRange().getValues()).rows);
+      // the same comparison for each product group (a group that is doing badly hides inside the overall rate)
+      if (cfg.RETENTION_MODELS) {
+        const rawRows2 = rawSheet ? FY27_gridToRows_(rawSheet.getDataRange().getValues()).rows : null;
+        const refRows2 = refSheet ? FY27_gridToRows_(refSheet.getDataRange().getValues()).rows : null;
+        retention.byGroup = FY27_retentionByGroup_(input, cfg, result, rawRows2, FY27_addMonths_(result.stats.actualsThrough, -1), refRows2);
+      }
     } catch (e) {
       ss.toast("Retention comparison skipped: " + e.message, "FY27 Forecast", 8);
     }
@@ -144,6 +150,7 @@ function FY27_run() {
     FY27_writeForecast_(ss, result.lines, cfg.SHEETS.FORECAST);
     FY27_writeForecast_(ss, result.detail, cfg.SHEETS.DETAIL);
     FY27_writeReview_(ss, result, retention);
+    if (retention && retention.byGroup) FY27_writeRetentionGroups_(ss, retention);
     FY27_writeCsmSheet_(ss, result.lines, ov.rows, result.stats.overrideStatus);
     FY27_writeOverrideStatus_(ovSheet, result.stats.overrideStatus);
     FY27_writeManualStatus_(manualSheet, result.stats.manualResults);
@@ -457,6 +464,64 @@ function FY27_ensureManualSheet_() {
 
 function FY27_writeManualStatus_(sh, results) {
   (results || []).forEach(function (r) { if (r.row) sh.getRange(r.row, 14).setValue(r.status); });
+}
+
+/* ---------------- Retention by Group tab ---------------- */
+
+/** Predicted retention (every model) next to actual history and the 2026 team forecast, one block per product group, with a one-line summary per group on top. */
+function FY27_writeRetentionGroups_(ss, retention) {
+  const cfg = FY27_CFG;
+  const sh = ss.getSheetByName(cfg.SHEETS.RETENTION_GROUP) || ss.insertSheet(cfg.SHEETS.RETENTION_GROUP);
+  sh.clear(); sh.clearFormats(); FY27_resetFormats_(sh);
+  const rows = [], fmt = [], heads = [];
+  const add = function (r) { rows.push(r); return rows.length; };
+  const groups = Object.keys(retention.byGroup);
+  const ncol = 10;
+  add(["Retention by product group"]);
+  add(["Predicted retention (this forecast) next to what retention actually was. Gross = renewals only; the 2026 team figure is system-forecast lines only (like for like)."]);
+  add([]);
+  heads.push(add(["Product group", "Baseline $ (" + (cfg.FORECAST_YEAR - 1) + ")", "Predicted: gross (weighted)", "Predicted: net (weighted)", "Predicted: confirmed only", "Actual gross: 2 years ago", "Actual gross: last year / YTD", "2026 team forecast (like for like)", "Forecast $ (full)", "Weighted $"]));
+  const sumRow = function (label, d) {
+    const cur = d.models[3];
+    const h = d.history || [];
+    const a1 = h.length > 1 ? h[h.length - 2] : null, a2 = h.length ? h[h.length - 1] : null;
+    const r = add([label, cur.baseline, cur.weightedGrossPct, cur.weightedNetPct, cur.confirmedGrossPct, a1 ? a1.grossPct : "", a2 ? a2.grossPct : "", d.team2026 ? d.team2026.pct : "", cur.fullNet, cur.weightedNet]);
+    fmt.push([r, 2, "$#,##0"], [r, 3, "0.0%"], [r, 4, "0.0%"], [r, 5, "0.0%"], [r, 6, "0.0%"], [r, 7, "0.0%"], [r, 8, "0.0%"], [r, 9, "$#,##0"], [r, 10, "$#,##0"]);
+  };
+  groups.forEach(function (g) { sumRow(g, retention.byGroup[g]); });
+  if (retention.models && retention.models.length) sumRow("All groups", { models: retention.models, history: retention.history, team2026: retention.team2026 });
+  add([]);
+  groups.forEach(function (g) {
+    const d = retention.byGroup[g];
+    heads.push(add([g, "Forecast $ (full)", "Weighted $", "Gross retention (full)", "Gross retention (weighted)", "Net retention (weighted)", "Confirmed only (gross)"]));
+    d.models.forEach(function (m) {
+      const r = add([m.name, m.fullNet, m.weightedNet, m.fullGrossPct, m.weightedGrossPct, m.weightedNetPct, m.confirmedGrossPct]);
+      fmt.push([r, 2, "$#,##0"], [r, 3, "$#,##0"], [r, 4, "0.0%"], [r, 5, "0.0%"], [r, 6, "0.0%"], [r, 7, "0.0%"]);
+    });
+    add(["Baseline $ " + Math.round(d.models[0].baseline).toLocaleString()]);
+    if ((d.history || []).length || d.team2026) {
+      heads.push(add(["Actual retention (raw Tableau)", "Earlier-year $", "Gross $ retention", "Net $ retention", "Logo retention", "Accounts"]));
+      (d.history || []).forEach(function (h) {
+        const r = add([h.label, h.baseline, h.grossPct, h.netPct, h.logoPct, h.accounts]);
+        fmt.push([r, 2, "$#,##0"], [r, 3, "0.0%"], [r, 4, "0.0%"], [r, 5, "0.0%"], [r, 6, "#,##0"]);
+      });
+      if (d.team2026) {
+        const r = add(["2026 team forecast, system-forecast lines only", d.team2026.baseline, d.team2026.pct]);
+        fmt.push([r, 2, "$#,##0"], [r, 3, "0.0%"]);
+      }
+    }
+    add([]);
+  });
+  const w = rows.reduce(function (m, r) { return Math.max(m, r.length); }, ncol);
+  rows.forEach(function (r) { while (r.length < w) r.push(""); });
+  sh.getRange(1, 1, rows.length, w).setValues(rows);
+  try { sh.getRange(1, 1, rows.length, w).setNumberFormat("General"); } catch (e) { /* formats already cleared */ }
+  fmt.forEach(function (f) { sh.getRange(f[0], f[1]).setNumberFormat(f[2]); });
+  sh.getRange(1, 1).setFontWeight("bold").setFontSize(14);
+  heads.forEach(function (r) { sh.getRange(r, 1, 1, w).setFontWeight("bold").setBackground("#E7EDF6"); });
+  sh.setColumnWidth(1, 430);
+  for (let c = 2; c <= w; c++) sh.setColumnWidth(c, 125);
+  sh.setFrozenRows(0);
 }
 
 /* ---------------- iHP Active Accounts tab ---------------- */

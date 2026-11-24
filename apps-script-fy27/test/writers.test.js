@@ -43,7 +43,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", "Session", "Utilities", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_writeRetentionGroups_, FY27_retentionByGroup_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -63,6 +63,20 @@ const retention = { models: api.FY27_retentionModels_(input, CFG, res), history:
   { "Crosstab Level 1 ": "Acct (001C0000014HAw7IAG)", "Crosstab Level 2": "NURSING COURSE", "Transaction Date Group": "Mar-26", "Metric value Sales": "900" }], "2026-10"),
   team2026: api.FY27_team2026Retention_([{ "Forecast Line Type": "Forecast", "Baseline Amount": "1000", "Forecast Amount": "800" }]) };
 api.FY27_writeReview_(ss, res, retention);
+{
+  const rawRows = [
+    { "Crosstab Level 1 ": "Acct (001C0000014HAw7IAG)", "Crosstab Level 2": "NURSING COURSE", "Transaction Date Group": "Mar-25", "Metric value Sales": "1000" },
+    { "Crosstab Level 1 ": "Acct (001C0000014HAw7IAG)", "Crosstab Level 2": "NURSING COURSE", "Transaction Date Group": "Mar-26", "Metric value Sales": "900" },
+    { "Crosstab Level 1 ": "Acct (001C0000014HBBBBIAG)", "Crosstab Level 2": "MED COURSE", "Transaction Date Group": "Mar-25", "Metric value Sales": "5000" },
+    { "Crosstab Level 1 ": "Acct (001C0000014HBBBBIAG)", "Crosstab Level 2": "MED COURSE", "Transaction Date Group": "Mar-26", "Metric value Sales": "2000" }];
+  const byGroup = api.FY27_retentionByGroup_(input, CFG, res, rawRows, "2026-10", [{ "Forecast Line Type": "Forecast", "Product Group": "NURSING COURSE", "Baseline Amount": "1000", "Forecast Amount": "800" }]);
+  assert.deepStrictEqual(Object.keys(byGroup), CFG.PRODUCT_GROUPS);
+  assert.strictEqual(byGroup["NURSING COURSE"].models.length, 5);
+  assert.strictEqual(byGroup["MED COURSE"].history.length, 1, "history is filtered to the group");
+  assert.ok(byGroup["NURSING COURSE"].team2026 && byGroup["MED COURSE"].team2026 === null);
+  api.FY27_writeRetentionGroups_(ss, { models: retention.models, history: retention.history, team2026: retention.team2026, byGroup });
+  assert.ok(sheets[CFG.SHEETS.RETENTION_GROUP].writes.length >= 1, "Retention by Group tab written");
+}
 
 const ORG = "001ORGAAAAAAAAA1";
 const bt = api.FY27_backtest_({

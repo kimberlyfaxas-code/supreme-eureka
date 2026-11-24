@@ -11,6 +11,7 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    RETENTION_GROUP: "Retention by Group",
     IHP_ACTIVE: "iHP Active Accounts",
     TABLEAU: "Tableau Bookings Data",
     OTC: "otc_rerun_nov_10_2026",
