@@ -11,6 +11,8 @@ const FY27_CFG = {
   SHEETS: {
     CARRY: "FY26Nov_DecForecast",
     MERGES: "Account Merges",
+    BASELINE_REVIEW: "Baseline Review",
+    BASELINE_TAGS: "Baseline Tags",
     RETENTION_GROUP: "Retention by Group",
     IHP_ACTIVE: "iHP Active Accounts",
     TABLEAU: "Tableau Bookings Data",
@@ -139,6 +141,14 @@ const FY27_CFG = {
   // "Non-Recurring" ($0; the value stays in Value If Booked) and does not go through the generic adjustment test.
   // Product groups shown as ONE line per account x month (all products and categories of the group combined; Forecast Detail keeps the products).
   // Separate from FLAT_FEE_GROUPS, which drives the flat-fee weights and add-on rules and does not include iHP.
+  // Tags a reviewer can put on a baseline row (Baseline Review tab). action: "remove" = taken out of the baseline altogether (a data error: not counted in retention either);
+  // "onetime" = stays in the baseline but is never forecast (Not Expected, Non-Recurring); "note" = just a note on the line.
+  BASELINE_TAGS: [
+    { name: "Data error - remove from baseline", action: "remove" },
+    { name: "Duplicate - remove from baseline", action: "remove" },
+    { name: "One-time fee - keep in baseline, do not forecast", action: "onetime" },
+    { name: "Checked - correct", action: "note" }
+  ],
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
   FLAT_FEE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE"],
   FLAT_FEE_OVERAGE_FRACTION: 0.15,

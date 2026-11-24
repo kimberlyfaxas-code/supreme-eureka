@@ -438,6 +438,29 @@ function FY27_buildForecast(input, cfg) {
   const base = input.tableau.concat(adjRows).map(function (r, i) {
       const b = FY27_normBaseline_(r, cfg); if (!b.row) b.row = "i" + i; b.fromAdjTab = !!r.__adjTab; return b; })
     .filter(function (b) { return b.fullId || b.baseAmt || b.group; });
+  // Baseline tags (the "Baseline Review" tab): a CSM / analyst marks a baseline row as a data error (removed from the baseline), a one-time fee (stays in the
+  // baseline, never forecast) or verified (a note). Rows are identified by account, product, month and amount (+ a count if identical rows repeat).
+  const baseAll = base.slice();
+  const tagCfg = {};
+  (cfg.BASELINE_TAGS || []).forEach(function (t) { tagCfg[t.name] = t.action; });
+  const tagByKey = {};
+  (input.baselineTags || []).forEach(function (r) { const k = FY27_str_(r["Baseline Key"]); if (k && (FY27_str_(r["Tag"]) || FY27_str_(r["Comment"]))) tagByKey[k] = r; });
+  const occ = {};
+  base.forEach(function (b) {
+    const k0 = [b.billingId, b.fullId, b.group, b.productName, b.baseMonth, b.baseAmt.toFixed(2)].join("|");
+    occ[k0] = (occ[k0] || 0) + 1; b.key = k0 + "|" + occ[k0];
+    const t = tagByKey[b.key];
+    b.tag = t ? FY27_str_(t["Tag"]) : ""; b.tagComment = t ? FY27_str_(t["Comment"]) : ""; b.tagAction = b.tag ? (tagCfg[b.tag] || "") : "";
+  });
+  const baselineRemoved = { rows: 0, value: 0 };
+  const baselineTagStatus = {};
+  Object.keys(tagByKey).forEach(function (k) { baselineTagStatus[k] = baseAll.some(function (b) { return b.key === k; }) ? "Applied" : "Not found"; });
+  for (let i = base.length - 1; i >= 0; i--) {
+    if (base[i].tagAction === "remove") { baselineRemoved.rows++; baselineRemoved.value += base[i].baseAmt; base.splice(i, 1); }
+  }
+  baselineRemoved.value = FY27_round2_(baselineRemoved.value);
+  const oneTimeRows = {};
+  base.forEach(function (b) { if (b.tagAction === "onetime") oneTimeRows[b.row] = b; });
   const sfById = {};
   (input.salesforce || []).forEach(function (r) {
     const s = FY27_normSf_(r);
@@ -598,7 +621,7 @@ function FY27_buildForecast(input, cfg) {
       accountRecordType: "", productGroup: "", productName: "", forecastSource: "",
       priorBookingType: "", nextBookingType: "", adjustment: "", baselineMonth: "", bookingId: "", adjVariance: "",
       contractId: "", contractStart: "", contractEnd: "", forecastMonth: "", forecastQuarter: "",
-      baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0, earlyAmount: 0,
+      baselineAmount: 0, valueIfBooked: 0, forecastAmount: 0, earlyAmount: 0, baseRow: "",
       estStudents: "", adjStudents: "", price: "", cohortNames: "", cohortCodes: "", priorCohorts: "",
       productCode: "", productType: "", modality: "", otcProgram: "", termMonths: "", reason: "", stage: "", timing: "", isManual: false, manualRow: "",
       bookingType: "", credit: "", creditBasis: "", status: "", expectation: "", weight: 1, weightedAmount: 0, otcEstimate: "", segment: "", flags: [], key: ""
@@ -630,7 +653,8 @@ function FY27_buildForecast(input, cfg) {
       nextBookingType: b.nextType,
       adjustment: b.isAdj ? "TRUE" : "FALSE",
       baselineMonth: b.baseMonth,
-      bookingId: b.bookingId
+      bookingId: b.bookingId,
+      baseRow: b.row
     };
   }
 
@@ -987,6 +1011,17 @@ function FY27_buildForecast(input, cfg) {
     lines.push(L);
   });
 
+  /* ---- 2-0. Baseline tagged "one-time": stays in the baseline, never forecast ---- */
+  if (Object.keys(oneTimeRows).length) {
+    lines.forEach(function (L) {
+      const b = oneTimeRows[L.baseRow];
+      if (!b || L.isManual || L.segment === "Additional predicted cohort") return;
+      L.valueIfBooked = L.valueIfBooked || L.forecastAmount;
+      L.forecastAmount = 0; L.expectation = "Not Expected"; L.reason = "Non-Recurring"; L.weightOverride = undefined; L.stage = "";
+      L.flags.push("Baseline tag: " + b.tag + (b.tagComment ? " - " + b.tagComment : ""));
+    });
+  }
+
   /* ---- 2-. Active iHP accounts: the maintained iHP account list is the reference for the iHP product group ----
    * When the "iHP Active Accounts" tab has rows, an iHP line (baseline-driven or OTC-only) whose account is not on that list is dropped entirely:
    * it is not forecast, not shown, and not counted. Manual add-ons and carry-ins are never dropped. No rows = rule off. */
@@ -1036,6 +1071,11 @@ function FY27_buildForecast(input, cfg) {
     ihpIgnored.baseline = FY27_round2_(ihpIgnored.baseline); ihpIgnored.forecast = FY27_round2_(ihpIgnored.forecast);
     ihpIgnored.top = Object.keys(byAcct).sort(function (a, b) { return byAcct[b] - byAcct[a]; }).slice(0, 10).map(function (k) { return { account: k, baseline: FY27_round2_(byAcct[k]) }; });
   })();
+
+  lines.forEach(function (L) {
+    const b = baseAll.filter(function (x) { return x.row === L.baseRow; })[0];
+    if (b && b.tag && b.tagAction === "note") L.flags.push("FYI: baseline tag: " + b.tag + (b.tagComment ? " - " + b.tagComment : ""));
+  });
 
   /* ---- 2a. Booked early: a cohort for the forecast year that was already booked while it is still the year before ----
    * The team credits a booking to the month it is signed, so an order that is already booked in the year before the forecast year is a
@@ -1364,6 +1404,11 @@ function FY27_buildForecast(input, cfg) {
     lines: lines,
     detail: detail,
     review: review,
+    baselineRows: baseAll.map(function (b) {
+      return { key: b.key, csm: FY27_str_(b.raw["Client Success Manager"]), account: FY27_str_(b.raw["Account Name"]), group: b.group, productName: b.productName, baseMonth: b.baseMonth,
+        fcMonth: b.fcMonth, amount: b.baseAmt, priorType: b.priorType, isAdj: b.isAdj, rating: b.rating, billingId: b.billingId, fullId: FY27_str_(b.raw["FULL ID"]), bookingId: b.bookingId,
+        fromAdjTab: b.fromAdjTab, tag: b.tag, comment: b.tagComment, state: b.tagAction === "remove" ? "Removed from baseline" : b.tagAction === "onetime" ? "Baseline only (not forecast)" : b.tag ? "Tagged" : "" };
+    }),
     writeback: writeback,
     coverage: Object.keys(cov).sort().map(function (k) { return cov[k]; }),
     stats: {
@@ -1391,6 +1436,8 @@ function FY27_buildForecast(input, cfg) {
       ignoredRosterChasing: ignoredRoster,
       earlyBooked: earlyBooked,
       ihpIgnored: ihpIgnored,
+      baselineRemoved: baselineRemoved,
+      baselineTagStatus: baselineTagStatus,
       ihpSplit: ihpSplit,
       mergeResults: mergeApplied.results,
       carry: carryStats,
@@ -1807,11 +1854,12 @@ function FY27_overrideRecFromCsmRow_(headers, row) {
  * Upsert a record into the Overrides store (a 2-D array of values below `header`). A record with every input blank removes the stored row.
  * Returns { values, action: "added" | "updated" | "removed" | "none" }.
  */
-function FY27_upsertOverride_(header, values, rec) {
+function FY27_upsertOverride_(header, values, rec, keyField) {
+  keyField = keyField || "Line Key";
   const col = function (n) { return header.indexOf(n); };
-  const kc = col("Line Key");
+  const kc = col(keyField);
   let idx = -1;
-  for (let i = 0; i < values.length; i++) if (FY27_str_(values[i][kc]) === rec["Line Key"]) { idx = i; break; }
+  for (let i = 0; i < values.length; i++) if (FY27_str_(values[i][kc]) === rec[keyField]) { idx = i; break; }
   if (rec.empty) {
     if (idx < 0) return { values: values, action: "none" };
     const out = values.slice(); out.splice(idx, 1);
@@ -1823,6 +1871,18 @@ function FY27_upsertOverride_(header, values, rec) {
   if (idx >= 0) { out2[idx] = row; return { values: out2, action: "updated" }; }
   out2.push(row);
   return { values: out2, action: "added" };
+}
+
+/** Rows of the Baseline Review tab (one per Tableau / Adjustments baseline row), sorted CSM > account > month, tags pre-filled. */
+const FY27_BASELINE_COLUMNS = ["CSM", "Account Name", "Product Group", "Product Name", "Baseline Month", "Baseline $", "Baseline Tag", "Comment", "Saved?", "State", "Looks like", "Rating", "Billing ID", "Full ID", "Booking ID", "Source Tab", "Baseline Key"];
+function FY27_baselineReviewRows_(baselineRows, lineReview) {
+  const sorted = baselineRows.slice().sort(function (a, b) {
+    return (a.csm < b.csm ? -1 : a.csm > b.csm ? 1 : 0) || (a.account < b.account ? -1 : a.account > b.account ? 1 : 0) || (a.baseMonth < b.baseMonth ? -1 : a.baseMonth > b.baseMonth ? 1 : 0);
+  });
+  return sorted.map(function (r) {
+    const looks = r.amount < 0 ? "Negative adjustment" : r.isAdj ? "Adjustment" : "";
+    return [r.csm, r.account, r.group, r.productName, r.baseMonth, r.amount, r.tag, r.comment, "", r.state, looks, r.rating, r.billingId, r.fullId, r.bookingId, r.fromAdjTab ? "Adjustments" : "Tableau", r.key];
+  });
 }
 
 /** The "Read Me" tab text for CSMs. */
@@ -1855,6 +1915,9 @@ function FY27_readmeLines_(cfg) {
     [""],
     ["TIMING vs BASELINE"],
     ["Early / On time / Late is worked out for you from the forecast month. To move a month, type the new month over Forecast Month."],
+    [""],
+    ["CHECKING THE BASELINE (before anything is published)"],
+    ["The tab '" + cfg.SHEETS.BASELINE_REVIEW + "' lists every baseline row (Tableau and Adjustments). In the yellow Baseline Tag column pick: a data error / duplicate (removed from the baseline and from retention), a one-time fee (stays in the baseline but is never forecast), or 'Checked - correct' (a note). Saved as you type, applied at the next refresh; clear the cell to undo. Removed rows stay on the list, greyed out."],
     [""],
     ["SAME ACCOUNT, TWO IDs (e.g. a separate Billing ID created just for one booking)"],
     ["Add a row on the '" + cfg.SHEETS.MERGES + "' tab: From ID = the duplicate, Into ID = the main account (either can be a Full ID or Student Org ID). After the next refresh both count as one account. The Status column confirms."],
@@ -1894,6 +1957,6 @@ if (typeof module !== "undefined" && module.exports) {
     FY27_num_: FY27_num_, FY27_retentionSummary_: FY27_retentionSummary_, FY27_retentionByGroup_: FY27_retentionByGroup_, FY27_retentionModels_: FY27_retentionModels_,
     FY27_historicalRetention_: FY27_historicalRetention_, FY27_team2026Retention_: FY27_team2026Retention_,
     FY27_csmHeaders_: FY27_csmHeaders_, FY27_CSM_DETAIL: FY27_CSM_DETAIL, FY27_csmRows_: FY27_csmRows_, FY27_overrideRecFromCsmRow_: FY27_overrideRecFromCsmRow_,
-    FY27_upsertOverride_: FY27_upsertOverride_, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
+    FY27_upsertOverride_: FY27_upsertOverride_, FY27_baselineReviewRows_: FY27_baselineReviewRows_, FY27_BASELINE_COLUMNS: FY27_BASELINE_COLUMNS, FY27_applyMerges_: FY27_applyMerges_, FY27_nameKey_: FY27_nameKey_, FY27_idFromUrl_: FY27_idFromUrl_, FY27_readmeLines_: FY27_readmeLines_
   };
 }

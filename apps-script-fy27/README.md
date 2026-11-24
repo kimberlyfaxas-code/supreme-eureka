@@ -129,6 +129,14 @@ net $ and logo retention per year pair (the current year is compared on the same
 - The old "Add override for selected Forecast row" menu item and its `Exclude` column are gone; an old Overrides tab is upgraded in
   place (rows kept, `Exclude` -> Not Expected).
 
+## Checking the baseline (`Baseline Review` tab, `Baseline Tags` store)
+`Baseline Review` lists every baseline row (Tableau Bookings Data + Adjustments tab), sorted CSM > account > month, with a yellow **Baseline Tag** dropdown and a **Comment**.
+Tags (`BASELINE_TAGS`): *Data error / Duplicate - remove from baseline* takes the row out of the baseline altogether (not forecast, not in the baseline check or any retention denominator;
+the row stays on the list, greyed, so it can be undone); *One-time fee - keep in baseline, do not forecast* keeps it in the baseline but the line is Not Expected / Non-Recurring at $0;
+*Checked - correct* only adds an FYI note. Edits are saved to `Baseline Tags` as they are typed (`onEdit`) and applied at the next refresh; clearing the cell undoes the tag. Rows are keyed on
+billing ID + full ID + product group + product + baseline month + amount (+ a count for identical repeats), so a tag survives a re-paste of the same data; if the Tableau row itself changes the tag
+shows `NOT FOUND` on `Baseline Tags` and in the Review count. The source tabs are never edited.
+
 ## Retention by product group (`Retention by Group` tab)
 The Review tab's retention models are overall rates, so a weak group (e.g. Med) hides inside them. `Retention by Group` repeats the comparison per product group (`PRODUCT_GROUPS`):
 a one-line-per-group summary on top (baseline $, predicted gross / net / confirmed-only retention from the current model, actual gross retention for the last two year pairs from the raw Tableau

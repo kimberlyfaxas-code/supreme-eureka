@@ -1289,4 +1289,41 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   assert.ok(Math.abs(sum("weightedNet") - overall.weightedNet) < 0.01);
   assert.strictEqual(by["MED COURSE"].models[0].baseline, 6000, "repeat-baseline row uses the group's baseline");
 })();
+// 72. Baseline tags: data errors leave the baseline entirely, one-time fees stay in it but are never forecast, notes only add a flag; unmatched tags say so
+(function () {
+  const B = (amt, month, extra) => tab(Object.assign({ "FULL ID": "0014u000025BTAG0001", "Billing ID": "0013b00001BTAG01", "Account Name": "Tag U", "Baseline Amount - Tableau": String(amt),
+    "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": month.replace("2026", "2027") }, extra || {}));
+  const rows = [B(1000, "2/1/2026"), B(50000, "3/1/2026"), B(700, "4/1/2026"), B(300, "5/1/2026")];
+  const run = (tags) => E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], baselineTags: tags || [], now: new Date(2026, 10, 23) }, CFG);
+  const plain = run();
+  assert.strictEqual(plain.baselineRows.length, 4);
+  const keyOf = (r, m) => r.baselineRows.find((x) => x.baseMonth === m).key;
+  const tags = [
+    { "Baseline Key": keyOf(plain, "2026-03"), "Tag": "One-time fee - keep in baseline, do not forecast", "Comment": "implementation fee" },
+    { "Baseline Key": keyOf(plain, "2026-04"), "Tag": "Data error - remove from baseline" },
+    { "Baseline Key": keyOf(plain, "2026-05"), "Tag": "Checked - correct" },
+    { "Baseline Key": "no|such|key|x", "Tag": "Data error - remove from baseline" }
+  ];
+  const r = run(tags);
+  assert.strictEqual(r.lines.length, 3, "the data error is gone");
+  assert.ok(!r.lines.some((l) => l.baselineAmount === 700));
+  assert.strictEqual(r.stats.baselineRemoved.rows, 1);
+  assert.strictEqual(r.stats.baselineRemoved.value, 700);
+  const one = r.lines.find((l) => l.baselineAmount === 50000);
+  assert.strictEqual(one.expectation, "Not Expected"); assert.strictEqual(one.reason, "Non-Recurring"); assert.strictEqual(one.forecastAmount, 0);
+  assert.ok(one.flags.some((f) => f.indexOf("Baseline tag:") === 0 && /implementation fee/.test(f)));
+  const checked = r.lines.find((l) => l.baselineAmount === 300);
+  assert.strictEqual(checked.expectation, plain.lines.find((l) => l.baselineAmount === 300).expectation);
+  assert.ok(checked.flags.some((f) => f.indexOf("FYI: baseline tag") === 0));
+  assert.strictEqual(r.stats.baselineTagStatus[keyOf(plain, "2026-03")], "Applied");
+  assert.strictEqual(r.stats.baselineTagStatus["no|such|key|x"], "Not found");
+  const bl = r.baselineRows.find((x) => x.baseMonth === "2026-04");
+  assert.strictEqual(bl.state, "Removed from baseline", "removed rows stay visible on the review list so the tag can be undone");
+  assert.ok(Math.abs(r.stats.baseline.tableau - (1000 + 50000 + 300)) < 0.01, "baseline no longer includes the removed row");
+  // identical repeated rows get their own keys
+  const dup = E.FY27_buildForecast({ tableau: [B(500, "2/1/2026"), B(500, "2/1/2026")], otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
+  assert.strictEqual(new Set(dup.baselineRows.map((x) => x.key)).size, 2);
+  const rowsOut = E.FY27_baselineReviewRows_(r.baselineRows);
+  assert.strictEqual(rowsOut[0].length, E.FY27_BASELINE_COLUMNS.length);
+})();
 console.log("all engine tests passed");

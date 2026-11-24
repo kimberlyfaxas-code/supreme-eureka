@@ -43,7 +43,7 @@ const ss = {
   toast() {}
 };
 const api = new Function("SpreadsheetApp", "LockService", "Session", "Utilities", src +
-  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_writeRetentionGroups_, FY27_retentionByGroup_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
+  "\nreturn { FY27_CFG, FY27_buildForecast, FY27_backtest_, FY27_writeForecast_, FY27_writeReview_, FY27_writeBacktest_, FY27_ensureOverridesSheet_, FY27_ensureManualSheet_, FY27_ensureMergeSheet_, FY27_writeBaselineReview_, FY27_ensureBaselineTagsSheet_, FY27_writeBaselineTagStatus_, FY27_onEditBaseline_, FY27_BASELINE_COLUMNS, FY27_writeRetentionGroups_, FY27_retentionByGroup_, FY27_ensureIhpSheet_, FY27_addLinkIds_, FY27_writeMergeStatus_, FY27_ensureReadMe_, FY27_writeCsmSheet_, FY27_writeOverrideStatus_, FY27_writeManualStatus_, FY27_onEdit_, FY27_csmHeaders_, FY27_retentionModels_, FY27_historicalRetention_, FY27_team2026Retention_ };")(SpreadsheetApp, {}, Session, Utilities);
 const CFG = api.FY27_CFG;
 CFG.USE_ADJUSTMENTS_TAB = true;
 
@@ -152,6 +152,28 @@ assert.strictEqual(ovWrites.length, 0, "calculated columns do not write override
 // editing another sheet does nothing
 api.FY27_onEdit_({ range: sheets[CFG.SHEETS.FORECAST].getRange(2, 2, 1, 1) });
 assert.strictEqual(ovWrites.length, 0);
+
+// Baseline Review tab, its store, and the edit sync
+{
+  api.FY27_writeBaselineReview_(ss, res);
+  const br = sheets[CFG.SHEETS.BASELINE_REVIEW];
+  assert.ok(br.writes.length >= 1 && br.filterCreated, "Baseline Review written with a filter");
+  const store = api.FY27_ensureBaselineTagsSheet_();
+  api.FY27_writeBaselineTagStatus_(store, {});
+  const bh = api.FY27_BASELINE_COLUMNS;
+  const brow = bh.map(() => "");
+  brow[bh.indexOf("Baseline Key")] = "k|1"; brow[bh.indexOf("Account Name")] = "A"; brow[bh.indexOf("Baseline Tag")] = "Data error - remove from baseline"; brow[bh.indexOf("Baseline $")] = 500;
+  br.getLastColumn = () => bh.length;
+  br.readValues = (r, c, nr, nc) => (r === 1 ? [bh] : [brow]);
+  store.getLastRow = () => 1; store.getLastColumn = () => 10;
+  const tw = [];
+  const og = store.getRange;
+  store.getRange = (r, c, nr, nc) => { const g = og(r, c, nr, nc); const sv = g.setValues; g.setValues = function (v) { if (r === 2) tw.push(v); return sv.call(this, v); }; return g; };
+  api.FY27_onEdit_({ range: br.getRange(2, bh.indexOf("Baseline Tag") + 1, 1, 1) });
+  assert.strictEqual(tw.length, 1, "tag written to the Baseline Tags store");
+  assert.strictEqual(tw[0][0][0], "k|1");
+  assert.strictEqual(tw[0][0][5], "Data error - remove from baseline");
+}
 
 assert.ok(sheets[CFG.SHEETS.OVERRIDES].writes.length >= 1, "overrides header written");
 assert.ok(sheets[CFG.SHEETS.FORECAST].writes.length >= 1);
