@@ -19,7 +19,7 @@ function makeSheet(name) {
     },
     setNumberFormat() { return this; }, setFontWeight() { return this; }, setFontSize() { return this; }, setWrap() { return this; }, setNote() { return this; },
     setBackground() { return this; }, clearDataValidations() { sh.validationsCleared = (sh.validationsCleared || 0) + 1; return this; }, clearNote() { sh.notesCleared = (sh.notesCleared || 0) + 1; return this; }, insertCheckboxes() { return this; }, setDataValidation() { return this; }, clearFormat() { return this; },
-    setValue(v) { sh.cells[r + "," + c] = v; return this; }, clearContent() { return this; },
+    setValue(v) { sh.cells[r + "," + c] = v; return this; }, setFormulas(f) { sh.formulas = (sh.formulas || []).concat(f); return this; }, clearContent() { return this; },
     createFilter() { sh.filterCreated = true; return this; },
     protect() { const p = { setDescription() { return p; }, setWarningOnly() { return p; } }; sh.protections.push(p); return p; },
     getSheet() { return sh; }, getRow() { return r; }, getColumn() { return c; }, getLastRow() { return r + (nr || 1) - 1; }, getLastColumn() { return c + (nc || 1) - 1; },
@@ -110,6 +110,7 @@ api.FY27_writeCsmSheet_(ss, res.lines, [], res.stats.overrideStatus);
 const csm = sheets[CFG.SHEETS.CSM];
 assert.ok(csm.validationsCleared >= 1 && csm.notesCleared >= 1, "stale dropdowns and notes from an older layout are cleared before writing");
 assert.ok(csm.filterCreated, "CSM tab has a filter");
+assert.ok(csm.formulas && /ROUNDUP\(MONTH\(/.test(csm.formulas[0][0]), "Forecast Quarter is a formula on the Forecast Month cell");
 assert.strictEqual(csm.frozenCols, 2);
 assert.ok(csm.cfRules && csm.cfRules.length === 9, "5 changed-cell rules + 4 category colour rules");
 assert.ok(csm.protections.length >= 1, "calculated columns protected (warning only)");

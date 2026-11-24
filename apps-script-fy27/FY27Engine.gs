@@ -1823,6 +1823,7 @@ function FY27_team2026Retention_(rows, group) {
 const FY27_CSM_COLUMNS = [
   ["CSM", "csm"], ["Account Name", "accountName"], ["Product Group", "productGroup"], ["Product Name", "productName"],
   ["Baseline Month", "baselineMonth", "month"], ["Baseline $", "baselineAmount", "money"], ["Forecast Month", "forecastMonth", "month", true],
+  ["Forecast Quarter", "forecastQuarter"],
   ["Forecast $", "forecastAmount", "money", true], ["Weighted $", "weightedAmount", "money"],
   ["Forecast Category", "expectation", "", true], ["Not Expected Reason", "reason", "", true], ["Roster Stage", "stage", "", true]
 ];
@@ -1835,11 +1836,12 @@ const FY27_CSM_EDITS = [
 const FY27_CSM_INPUTS = FY27_CSM_EDITS.map(function (x) { return x[0]; }).concat(["Comment"]);
 // right after Comment: whether the change was saved, the explanation, the hidden key and the hidden calculated values
 const FY27_CSM_TAIL = ["Saved?", "Why (flags)", "Line Key"].concat(FY27_CSM_EDITS.map(function (x) { return x[2]; }));
-// to the right: rating, IDs (to copy into Manual Add-Ons / Account Merges), what kind of line it is, and which cohorts it is made of
+// to the right: rating, what kind of line it is, which cohorts it is made of, then the IDs (to copy into Manual Add-Ons / Account Merges) and the source
 const FY27_CSM_DETAIL = [
-  ["Rating", "rating"], ["Timing vs Baseline", "timing"], ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"],
+  ["Rating", "rating"], ["Timing vs Baseline", "timing"],
   ["Booking Type", "bookingType"], ["Cohort Names", "cohortNames"], ["Cohort Codes", "cohortCodes"], ["Est. Students", "estStudents"], ["Price Per Student", "price", "money"],
-  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"], ["Booked Early (counted in prior year) $", "earlyAmount", "money"]
+  ["Prior-Year Cohorts", "priorCohorts"], ["Contract End", "contractEnd"], ["Weight", "weight", "pct"], ["Weight Basis", "segment"], ["Booked Early (counted in prior year) $", "earlyAmount", "money"],
+  ["Full ID", "fullId"], ["Student Org ID", "studentOrgId"], ["Source", "forecastSource"]
 ];
 
 function FY27_csmHeaders_() {
