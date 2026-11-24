@@ -152,8 +152,8 @@ crosstab, and the 2026 team forecast like for like), then a block per group with
 ## One current name per product (`PRODUCT_CATALOG`, `Product Names` tab)
 Product names and codes change through a term and differ between Tableau and OTC ("Curriculum Plus", "NCLEX RN - Curriculum Plus", ...). Every product name is mapped to ONE current name
 (from the latest product list: NCLEX RN - Curriculum Plus / Prep Select / Total Prep / Testing Select / Question Select / Curriculum Plus International, NCLEX PN - PN Curriculum Plus / PN Prep Select,
-Single Test RN / PN, FNP, Admissions, Continuing Professional Development Library, GN iHP, UNE iHP) by product code (OTC `product_code`) or by alias words, first match wins. A bare "Curriculum Plus" / "Prep Select" (no RN / PN in the name) follows the account's OTHER nursing line items (`PRODUCT_RN_PN_PAIRS`): RN names only -> RN, PN names only -> PN; if both are present (or
-none), "RN" / "PN" in the account name decides, and the default is RN. A name that says RN or PN is never changed. The mapped name is what is shown and grouped; matching Tableau lines to OTC cohorts still uses the original names (RN / PN family). Names that match nothing keep their
+Single Test RN / PN, FNP, Admissions, Continuing Professional Development Library, GN iHP, UNE iHP) by product code (OTC `product_code`) or by alias words, first match wins. A bare "Curriculum Plus"
+is RN Curriculum Plus. The mapped name is what is shown and grouped; matching Tableau lines to OTC cohorts still uses the original names (RN / PN family). Names that match nothing keep their
 own name and are listed on the Review tab; add them on the `Product Names` tab (alias exactly as it appears -> current name), no code change needed. The baseline-tag key uses the original name,
 so tags are not affected; line-key numbering for lines sharing an account/group/month can shift once.
 

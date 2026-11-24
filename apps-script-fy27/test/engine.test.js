@@ -1384,23 +1384,4 @@ CFG.ADJUSTMENT_MAX_ABS = 0;
   const r2 = E.FY27_buildForecast({ tableau: T, otc: [], salesforce: [], overrides: [], adjustments: [], productAliases: [{ "Alias (as it appears in Tableau / OTC)": "Mystery Product", "Product (current name)": "NCLEX RN - Total Prep" }], now: new Date(2026, 10, 23) }, CFG);
   assert.deepStrictEqual(r2.stats.unmappedProducts, []);
 })();
-// 76. A bare "Curriculum Plus" follows the account's other nursing line items (RN only -> RN, PN only -> PN, both -> RN / PN in the account name)
-(function () {
-  const N = (id, name, product, amt, month) => tab({ "FULL ID": id, "Billing ID": "0013b00001" + id.slice(-5), "Account Name": name, "Product Name": product, "Baseline Amount - Tableau": String(amt),
-    "Baseline Booking Month - Tableau": month, "Forecast Month - Tableau": month.replace("2026", "2027") });
-  const rows = [
-    N("0014u000025BARE0001", "Plain College", "Curriculum Plus", 100, "1/1/2026"),                       // no evidence -> RN
-    N("0014u000025BARE0002", "Other College", "Curriculum Plus", 100, "1/1/2026"), N("0014u000025BARE0002", "Other College", "NCLEX RN - Curriculum Plus", 200, "2/1/2026"),
-    N("0014u000025BARE0003", "Pn Only College", "Curriculum Plus", 100, "1/1/2026"), N("0014u000025BARE0003", "Pn Only College", "PN Curriculum Plus", 200, "2/1/2026"),
-    N("0014u000025BARE0004", "Green River College- PN", "Curriculum Plus", 100, "1/1/2026"), N("0014u000025BARE0004", "Green River College- PN", "PN Curriculum Plus", 200, "2/1/2026"),
-    N("0014u000025BARE0004", "Green River College- PN", "NCLEX RN - Curriculum Plus", 300, "3/1/2026")           // both present -> the account name says PN
-  ];
-  const r = E.FY27_buildForecast({ tableau: rows, otc: [], salesforce: [], overrides: [], adjustments: [], now: new Date(2026, 10, 23) }, CFG);
-  const name = (acct, month) => r.lines.find((l) => l.accountName === acct && l.forecastMonth === month).productName;
-  assert.strictEqual(name("Plain College", "2027-01"), "NCLEX RN - Curriculum Plus");
-  assert.strictEqual(name("Other College", "2027-01"), "NCLEX RN - Curriculum Plus");
-  assert.strictEqual(name("Pn Only College", "2027-01"), "NCLEX PN - PN Curriculum Plus");
-  assert.strictEqual(name("Green River College- PN", "2027-01"), "NCLEX PN - PN Curriculum Plus");
-  assert.strictEqual(name("Green River College- PN", "2027-03"), "NCLEX RN - Curriculum Plus", "an explicit RN name is never changed");
-})();
 console.log("all engine tests passed");

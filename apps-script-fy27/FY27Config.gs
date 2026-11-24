@@ -182,8 +182,6 @@ const FY27_CFG = {
     { name: "GN iHP", codes: [], aliases: ["gn ihp", "ihp grad", "ihp graduate"], groups: ["IHUMAN"] },
     { name: "UNE iHP", codes: [], aliases: ["une ihp", "ihp une"], groups: ["IHUMAN"] }
   ],
-  // A bare name (no RN / PN in it) that maps to the RN product is switched to its PN twin when the account's other nursing line items are PN (see the README).
-  PRODUCT_RN_PN_PAIRS: { "NCLEX RN - Curriculum Plus": "NCLEX PN - PN Curriculum Plus", "NCLEX RN - Prep Select": "NCLEX PN - PN Prep Select" },
   // Product groups whose names are checked against the catalogue (names that match nothing are listed on the Review tab).
   PRODUCT_CATALOG_GROUPS: ["NURSING COURSE", "IHUMAN"],
   COMBINE_GROUPS: ["MED COURSE", "ALLIED HEALTH COURSE", "IHUMAN"],
